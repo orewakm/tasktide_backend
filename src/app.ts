@@ -4,6 +4,7 @@ import { AppError } from './errors/AppError';
 import { logger } from './middleware/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { authRoutes } from './routes/authRoutes';
+import { boardRoutes } from './routes/boardRoutes';
 
 export const app = express();
 app.use(logger);
@@ -15,6 +16,7 @@ app.get('/api/health', async (_req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/boards', boardRoutes);
 
 app.use((_req, _res, next) => {
     next(new AppError(404, 'Route not found'));

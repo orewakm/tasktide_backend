@@ -1,0 +1,100 @@
+Project tasktide {
+  database_type: 'PostgreSQL'
+}
+
+Enum user_role {
+  user
+  admin
+  super_admin
+}
+
+Enum card_priority {
+  low
+  medium
+  high
+}
+
+Enum member_status {
+  invited
+  active
+}
+
+Table users {
+  id uuid [pk, default: `gen_random_uuid()`]
+  name varchar(100) [not null]
+  email varchar(255) [not null, unique]
+  password_hash varchar(255) [not null]
+  role user_role [not null, default: 'user']
+  created_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz [note: 'null = active, set = soft deleted']
+}
+
+Table boards {
+  id uuid [pk, default: `gen_random_uuid()`]
+  name varchar(100) [not null]
+  owner_id uuid [not null]
+  created_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+}
+
+Table board_members {
+  board_id uuid [not null]
+  user_id uuid [not null]
+  status member_status [not null, default: 'invited', note: 'invited = waiting for the user to accept, active = has access']
+
+  indexes {
+    (board_id, user_id) [pk]
+  }
+}
+
+Table columns {
+  id uuid [pk, default: `gen_random_uuid()`]
+  board_id uuid [not null]
+  name varchar(100) [not null, note: 'e.g. To Do, In Progress, Done']
+  position float [not null, note: 'fractional order, left to right']
+  deleted_at timestamptz
+}
+
+Table cards {
+  id uuid [pk, default: `gen_random_uuid()`]
+  column_id uuid [not null]
+  assignee_id uuid
+  title varchar(200) [not null]
+  description text
+  priority card_priority [not null, default: 'medium']
+  position float [not null, note: 'fractional order, top to bottom']
+  version int [not null, default: 1, note: 'increases on every edit, used to detect conflicting edits']
+  completed_at timestamptz [note: 'null = not completed']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+}
+
+Table card_notes {
+  id uuid [pk, default: `gen_random_uuid()`]
+  card_id uuid [not null]
+  author_id uuid [not null]
+  content text [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table time_entries {
+  id uuid [pk, default: `gen_random_uuid()`]
+  card_id uuid [not null]
+  user_id uuid [not null]
+  started_at timestamptz [not null, default: `now()`]
+  ended_at timestamptz [note: 'null while the timer is running']
+
+  Note: 'One running timer per user: unique index on (user_id) WHERE ended_at IS NULL'
+}
+
+Ref: boards.owner_id > users.id
+Ref: board_members.board_id > boards.id [delete: cascade]
+Ref: board_members.user_id > users.id [delete: cascade]
+Ref: columns.board_id > boards.id [delete: cascade]
+Ref: cards.column_id > columns.id [delete: cascade]
+Ref: cards.assignee_id > users.id [delete: set null]
+Ref: card_notes.card_id > cards.id [delete: cascade]
+Ref: card_notes.author_id > users.id [delete: cascade]
+Ref: time_entries.card_id > cards.id [delete: cascade]
+Ref: time_entries.user_id > users.id [delete: cascade]

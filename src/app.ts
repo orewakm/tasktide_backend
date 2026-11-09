@@ -6,6 +6,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { authRoutes } from './routes/authRoutes';
 import { boardRoutes } from './routes/boardRoutes';
 import { invitationRoutes } from './routes/invitationRoutes';
+import { columnRoutes } from './routes/columnRoutes';
 
 export const app = express();
 app.use(logger);
@@ -19,6 +20,7 @@ app.get('/api/health', async (_req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/boards', boardRoutes);
 app.use('/api/invitations', invitationRoutes);
+app.use('/api/columns', columnRoutes);
 
 app.use((_req, _res, next) => {
     next(new AppError(404, 'Route not found'));

@@ -66,6 +66,14 @@ export async function decline(boardId: string, userId: string): Promise<boolean>
     return (result.rowCount ?? 0) > 0;
 }
 
+export async function isActiveMember(boardId: string, userId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+        `SELECT 1 FROM board_members WHERE board_id = $1 AND user_id = $2 AND status = 'active'`,
+        [boardId, userId]
+    );
+    return rows.length > 0;
+}
+
 export async function remove(boardId: string, userId: string): Promise<boolean> {
     const result = await pool.query(
         `

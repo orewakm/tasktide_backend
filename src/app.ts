@@ -8,6 +8,7 @@ import { boardRoutes } from './routes/boardRoutes';
 import { invitationRoutes } from './routes/invitationRoutes';
 import { columnRoutes } from './routes/columnRoutes';
 import { cardRoutes } from './routes/cardRoutes';
+import { noteRoutes } from './routes/noteRoutes';
 
 export const app = express();
 app.use(logger);
@@ -23,6 +24,7 @@ app.use('/api/boards', boardRoutes);
 app.use('/api/invitations', invitationRoutes);
 app.use('/api/columns', columnRoutes);
 app.use('/api/cards', cardRoutes);
+app.use('/api/notes', noteRoutes);
 
 app.use((_req, _res, next) => {
     next(new AppError(404, 'Route not found'));

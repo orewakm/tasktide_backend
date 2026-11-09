@@ -2,7 +2,7 @@ import { AppError } from '../errors/AppError';
 import * as boardRepository from '../repositories/boardRepository';
 import type { Role } from '../repositories/userRepository';
 
-type Actor = { id: string; role: Role };
+export type Actor = { id: string; role: Role };
 
 export async function getAccessibleBoard(boardId: string, actor: Actor) {
     const board =
@@ -13,7 +13,7 @@ export async function getAccessibleBoard(boardId: string, actor: Actor) {
     return board;
 }
 
-async function getOwnedBoard(boardId: string, actor: Actor) {
+export async function getOwnedBoard(boardId: string, actor: Actor) {
     const board = await getAccessibleBoard(boardId, actor);
     if (board.owner_id !== actor.id && actor.role !== 'super_admin') {
         throw new AppError(403, 'Only the owner can do this');

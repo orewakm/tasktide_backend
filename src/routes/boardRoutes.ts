@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as boardController from '../controllers/boardController';
 import { authenticate } from '../middleware/auth';
+import * as memberController from '../controllers/boardMemberController';
 
 export const boardRoutes = Router();
 boardRoutes.use(authenticate); // every board route needs a logged-in user
@@ -10,3 +11,6 @@ boardRoutes.get('/', boardController.list);
 boardRoutes.get('/:id', boardController.getOne);
 boardRoutes.patch('/:id', boardController.rename);
 boardRoutes.delete('/:id', boardController.remove);
+boardRoutes.get('/:id/members', memberController.list);
+boardRoutes.post('/:id/members', memberController.add);
+boardRoutes.delete('/:id/members/:userId', memberController.remove);

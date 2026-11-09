@@ -4,19 +4,31 @@ import type { Role } from '../repositories/userRepository';
 
 export type Actor = { id: string; role: Role };
 
-export async function getAccessibleBoard(boardId: string, actor: Actor) {
+// Non-members get 404 so they can't tell the board exists.
+// notFoundMessage lets callers say "Card not found" etc. instead of "Board not found".
+export async function getAccessibleBoard(
+    boardId: string,
+    actor: Actor,
+    notFoundMessage = 'Board not found'
+) {
     const board =
         actor.role === 'super_admin'
             ? await boardRepository.getById(boardId)
             : await boardRepository.getForMember(boardId, actor.id);
-    if (!board) throw new AppError(404, 'Board not found');
+    if (!board) throw new AppError(404, notFoundMessage);
     return board;
 }
 
+// The owner (or super admin) manages the board: deletes, members, settings.
+export function canManageBoard(board: { owner_id: string }, actor: Actor) {
+    return board.owner_id === actor.id || actor.role === 'super_admin';
+}
+
+// 404 for non-members, 403 for members who aren't the owner.
 export async function getOwnedBoard(boardId: string, actor: Actor) {
     const board = await getAccessibleBoard(boardId, actor);
-    if (board.owner_id !== actor.id && actor.role !== 'super_admin') {
-        throw new AppError(403, 'Only the owner can do this');
+    if (!canManageBoard(board, actor)) {
+        throw new AppError(403, 'Only the board owner can do this');
     }
 
     return board;

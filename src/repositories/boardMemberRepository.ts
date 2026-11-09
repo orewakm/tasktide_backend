@@ -36,9 +36,10 @@ export async function listMembers(boardId: string): Promise<Member[]> {
 export async function listInvitations(userId: string): Promise<Board[]> {
     const { rows } = await pool.query<Board>(
         `SELECT b.id, b.name, b.owner_id, b.created_at
-        FROM board_members b
-        JOINS boards b ON b.id = m.board_id
-        WHERE m.user_id = $1 AND m.status = 'invited AND b.deleted_at IS NULL`,
+   FROM board_members m
+   JOIN boards b ON b.id = m.board_id
+   WHERE m.user_id = $1 AND m.status = 'invited' AND b.deleted_at IS NULL
+   ORDER BY b.created_at DESC`,
         [userId]
     );
 

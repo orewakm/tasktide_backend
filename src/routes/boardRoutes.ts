@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/auth';
 import * as memberController from '../controllers/boardMemberController';
 import * as columnController from '../controllers/columnController';
 import * as cardController from '../controllers/cardController';
+import * as statsController from '../controllers/statsController';
 
 export const boardRoutes = Router();
 boardRoutes.use(authenticate); // every board route needs a logged-in user
@@ -19,3 +20,4 @@ boardRoutes.delete('/:id/members/:userId', memberController.remove);
 boardRoutes.get('/:id/columns', columnController.list);
 boardRoutes.post('/:id/columns', columnController.create);
 boardRoutes.get('/:id/cards', cardController.list);
+boardRoutes.get('/:id/stats', statsController.board);

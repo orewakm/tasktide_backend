@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as cardController from '../controllers/cardController';
 import * as noteController from '../controllers/noteController';
+import * as statsController from '../controllers/statsController';
 import * as timeEntryController from '../controllers/timeEntryController';
 import { authenticate } from '../middleware/auth';
 
@@ -18,3 +19,4 @@ cardRoutes.get('/:id/time-entries', timeEntryController.listForCard);
 cardRoutes.post('/:id/time-entries', timeEntryController.start);
 
 cardRoutes.patch('/:id/move', cardController.move);
+cardRoutes.get('/:id/stats', statsController.card);

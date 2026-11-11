@@ -7,13 +7,17 @@ import * as cardController from '../controllers/cardController';
 import * as statsController from '../controllers/statsController';
 
 export const boardRoutes = Router();
-boardRoutes.use(authenticate); // every board route needs a logged-in user
+boardRoutes.use(authenticate); // every board route below needs a logged-in user (TR: aşağıdaki her pano route'u giriş yapmış kullanıcı ister)
 
 boardRoutes.post('/', boardController.create);
 boardRoutes.get('/', boardController.list);
 boardRoutes.get('/:id', boardController.getOne);
 boardRoutes.patch('/:id', boardController.rename);
 boardRoutes.delete('/:id', boardController.remove);
+// Things that need a board id to be listed or created live under /api/boards/:id/...
+// '/:id' matches a single path segment, so these never land on getOne above.
+// TR: Listelemek veya oluşturmak için pano id'si gereken şeyler /api/boards/:id/... altında durur.
+// TR: '/:id' tek bir path parçasıyla eşleşir, bu yüzden bunlar asla yukarıdaki getOne'a düşmez.
 boardRoutes.get('/:id/members', memberController.list);
 boardRoutes.post('/:id/members', memberController.add);
 boardRoutes.delete('/:id/members/:userId', memberController.remove);

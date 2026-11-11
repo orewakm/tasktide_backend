@@ -54,7 +54,7 @@ export async function getForMember(boardId: string, userId: string): Promise<Boa
 
 export async function getById(boardId: string): Promise<Board | null> {
     const { rows } = await pool.query<Board>(
-        `SELECT id, name, owner_id, created_at FROM boards WHERE id = $1`,
+        `SELECT id, name, owner_id, created_at FROM boards WHERE id = $1 AND deleted_at IS NULL`,
         [boardId]
     );
 

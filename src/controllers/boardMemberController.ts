@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { email, z } from 'zod';
+import { z } from 'zod';
 import * as memberService from '../services/boardMemberService';
 
 const idSchema = z.uuid();

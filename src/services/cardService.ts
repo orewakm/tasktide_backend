@@ -7,6 +7,7 @@ import * as memberRepository from '../repositories/boardMemberRepository';
 import * as boardService from './boardService';
 import type { Actor } from './boardService';
 import * as columnService from './columnService';
+import * as realtime from '../sockets/realtime';
 
 export interface CardInput {
     title: string;
@@ -52,13 +53,15 @@ export async function createCard(columnId: string, input: CardInput, actor: Acto
     const column = await columnService.getAccessibleColumn(columnId, actor);
     if (input.assigneeId) await assertAssigneeIsMember(column.board_id, input.assigneeId);
 
-    return cardRepository.create(
+    const card = await cardRepository.create(
         column.id,
         input.title,
         input.description ?? null,
         input.priority,
         input.assigneeId ?? null
     );
+    realtime.emitToBoard(column.board_id, 'card:created', card);
+    return card;
 }
 
 export async function getCard(cardId: string, actor: Actor) {
@@ -97,6 +100,7 @@ export async function updateCard(cardId: string, input: CardUpdate, actor: Actor
         if (!stillExists) throw new AppError(404, 'Card not found');
         throw new AppError(409, CONFLICT_MESSAGE);
     }
+    realtime.emitToBoard(card.board_id, 'card:updated', updated);
     return updated;
 }
 
@@ -106,6 +110,7 @@ export async function deleteCard(cardId: string, actor: Actor) {
     await boardService.getOwnedBoard(card.board_id, actor); // 403 for non-owners
     const deleted = await cardRepository.softDelete(cardId);
     if (!deleted) throw new AppError(404, 'Card not found');
+    realtime.emitToBoard(card.board_id, 'card:deleted', { id: card.id, column_id: card.column_id });
 }
 
 export async function moveCard(cardId: string, input: CardMove, actor: Actor) {
@@ -115,21 +120,33 @@ export async function moveCard(cardId: string, input: CardMove, actor: Actor) {
         throw new AppError(400, 'A card can only be moved to a column on the same board');
     }
 
-    return withTransaction(async (client) => {
+    const { moved, renumbered } = await withTransaction(async (client) => {
         const locked = await cardRepository.lockColumn(client, target.id);
         if (!locked) throw new AppError(404, 'Column not found'); // deleted in the meantime
 
+        let renumbered: { id: string; position: number }[] | null = null;
         let positions = await cardRepository.listPositions(client, target.id, card.id);
         let position = positionAt(positions, input.index);
         if (position === null) {
             // Neighbours too close: spread the column out and calculate again.
-            await cardRepository.renumber(client, target.id);
+            renumbered = await cardRepository.renumber(client, target.id);
             positions = await cardRepository.listPositions(client, target.id, card.id);
             position = positionAt(positions, input.index)!; // gaps are 1000 now, never null
         }
 
         const moved = await cardRepository.moveTo(client, card.id, target.id, position);
         if (!moved) throw new AppError(404, 'Card not found'); // deleted in the meantime
-        return moved;
+        return { moved, renumbered };
     });
+
+    // Sent only after COMMIT, so clients never hear about a change that got rolled back.
+    // Renumbered positions go first; the moved card's new position then overrides its own.
+    if (renumbered) {
+        realtime.emitToBoard(card.board_id, 'cards:renumbered', {
+            column_id: target.id,
+            cards: renumbered,
+        });
+    }
+    realtime.emitToBoard(card.board_id, 'card:moved', { ...moved, from_column_id: card.column_id });
+    return moved;
 }

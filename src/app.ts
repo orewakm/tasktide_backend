@@ -1,4 +1,6 @@
+import cors from 'cors';
 import express from 'express';
+import { config } from './config';
 import { pool } from './db';
 import { AppError } from './errors/AppError';
 import { redis } from './redis';
@@ -14,6 +16,7 @@ import { timeEntryRoutes } from './routes/timeEntryRoutes';
 
 export const app = express();
 app.use(logger);
+app.use(cors({ origin: config.CORS_ORIGIN }));
 app.use(express.json());
 
 // Used by Docker's healthcheck: 200 only when both Postgres and Redis answer.

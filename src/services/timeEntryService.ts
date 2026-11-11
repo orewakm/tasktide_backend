@@ -1,5 +1,6 @@
 import { AppError } from '../errors/AppError';
 import * as timeEntryRepository from '../repositories/timeEntryRepository';
+import * as realtime from '../sockets/realtime';
 import * as boardService from './boardService';
 import type { Actor } from './boardService';
 import * as cardService from './cardService';
@@ -8,20 +9,22 @@ import * as cardService from './cardService';
 // The database (one_running_timer_per_user) guarantees one running timer per user.
 export async function startTimer(cardId: string, actor: Actor) {
     const card = await cardService.getAccessibleCard(cardId, actor);
-    try {
-        return await timeEntryRepository.start(card.id, actor.id);
-    } catch (err) {
+    const entry = await timeEntryRepository.start(card.id, actor.id).catch((err) => {
         if ((err as { code?: string }).code === '23505') {
             throw new AppError(409, 'You already have a running timer. Stop it first.');
         }
         throw err;
-    }
+    });
+    // Lets the board show who is working on which card right now.
+    realtime.emitToBoard(entry.board_id, 'timer:started', entry);
+    return entry;
 }
 
 // Users can only stop their own timer, so no board check is needed.
 export async function stopTimer(actor: Actor) {
     const entry = await timeEntryRepository.stopRunning(actor.id);
     if (!entry) throw new AppError(404, 'No running timer');
+    realtime.emitToBoard(entry.board_id, 'timer:stopped', entry);
     return entry;
 }
 
@@ -46,4 +49,9 @@ export async function deleteEntry(entryId: string, actor: Actor) {
     }
     const deleted = await timeEntryRepository.remove(entryId);
     if (!deleted) throw new AppError(404, 'Time entry not found');
+    realtime.emitToBoard(entry.board_id, 'time-entry:deleted', {
+        id: entry.id,
+        card_id: entry.card_id,
+        user_id: entry.user_id,
+    });
 }

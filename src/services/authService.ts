@@ -4,6 +4,7 @@ import * as sessionRepository from '../repositories/sessionRepository';
 import * as userRepository from '../repositories/userRepository';
 import type { PublicUser } from '../repositories/userRepository';
 import { AppError } from '../errors/AppError';
+import * as realtime from '../sockets/realtime';
 
 export async function register(name: string, email: string, password: string) {
     const passwordHash = await bcrypt.hash(password, 10);
@@ -30,9 +31,10 @@ export async function login(email: string, password: string) {
     };
 }
 
-// Ends this session only (other devices stay logged in).
+// Ends this session only (other devices stay logged in) and closes its sockets.
 export async function logout(token: string, userId: string) {
     await sessionRepository.remove(token);
+    await realtime.disconnectSession(userId, token);
 }
 
 // Token -> session in Redis -> user in Postgres.

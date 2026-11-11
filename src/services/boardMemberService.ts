@@ -1,7 +1,9 @@
 import { AppError } from '../errors/AppError';
+import * as boardRepository from '../repositories/boardRepository';
 import * as memberRepository from '../repositories/boardMemberRepository';
 import type { MemberStatus } from '../repositories/boardMemberRepository';
 import * as userRepository from '../repositories/userRepository';
+import * as realtime from '../sockets/realtime';
 import * as boardService from './boardService';
 import type { Actor } from './boardService';
 
@@ -18,7 +20,11 @@ export async function addMember(
     const added = await memberRepository.add(boardId, user.id, status);
     if (!added) throw new AppError(409, 'User is already invited or a member');
 
-    return { id: user.id, name: user.name, email: user.email, status };
+    const member = { id: user.id, name: user.name, email: user.email, status };
+    realtime.emitToBoard(boardId, 'member:added', { board_id: boardId, ...member });
+    // The added user sees it live: a new invitation, or the board appearing in their list.
+    realtime.emitToUser(user.id, status === 'invited' ? 'invitation:received' : 'board:added', board);
+    return member;
 }
 
 export async function listMembers(boardId: string, actor: Actor) {
@@ -26,16 +32,21 @@ export async function listMembers(boardId: string, actor: Actor) {
     return memberRepository.listMembers(boardId);
 }
 
+// The owner can remove anyone except themselves; a member can remove themselves (leave).
 export async function removeMember(boardId: string, userId: string, actor: Actor) {
     const board = await boardService.getAccessibleBoard(boardId, actor);
-    const canManage = board.owner_id === actor.id || actor.role === 'super_admin';
 
-    if (userId !== actor.id && !canManage) throw new AppError(403, 'Only owner can remove members');
-
+    if (userId !== actor.id && !boardService.canManageBoard(board, actor)) {
+        throw new AppError(403, 'Only owner can remove members');
+    }
     if (userId === board.owner_id) throw new AppError(400, "The owner can't be removed");
 
     const removed = await memberRepository.remove(boardId, userId);
     if (!removed) throw new AppError(404, 'Member not found');
+
+    realtime.emitToBoard(boardId, 'member:removed', { board_id: boardId, user_id: userId });
+    realtime.emitToUser(userId, 'board:removed', { id: boardId });
+    await realtime.removeUserFromBoard(boardId, userId);
 }
 
 export async function listInvitations(actor: Actor) {
@@ -45,9 +56,25 @@ export async function listInvitations(actor: Actor) {
 export async function acceptInvitation(boardId: string, actor: Actor) {
     const accepted = await memberRepository.accept(boardId, actor.id);
     if (!accepted) throw new AppError(404, 'Invitation not found');
+
+    const [user, board] = await Promise.all([
+        userRepository.getById(actor.id),
+        boardRepository.getById(boardId),
+    ]);
+    if (user) {
+        realtime.emitToBoard(boardId, 'member:updated', {
+            board_id: boardId,
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            status: 'active',
+        });
+    }
+    if (board) realtime.emitToUser(actor.id, 'board:added', board);
 }
 
 export async function declineInvitation(boardId: string, actor: Actor) {
     const declined = await memberRepository.decline(boardId, actor.id);
     if (!declined) throw new AppError(404, 'Invitation not found');
+    realtime.emitToBoard(boardId, 'member:removed', { board_id: boardId, user_id: actor.id });
 }

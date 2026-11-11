@@ -13,6 +13,12 @@ export interface TimeEntryWithUser extends TimeEntry {
     duration_seconds: number; // running timers count up to now
 }
 
+// What start / stop / current return: enough for a "timer running on <card>" widget.
+export interface TimeEntryDetails extends TimeEntryWithUser {
+    card_title: string;
+    board_id: string;
+}
+
 // An entry plus the board it belongs to (entry -> card -> column -> board).
 export interface TimeEntryWithBoard extends TimeEntry {
     board_id: string;
@@ -20,29 +26,45 @@ export interface TimeEntryWithBoard extends TimeEntry {
 
 const FIELDS = 'id, card_id, user_id, started_at, ended_at';
 
+// Turns the rows of a CTE named "e" into TimeEntryDetails.
+const DETAILS = `
+    SELECT e.id, e.card_id, e.user_id, u.name AS user_name, e.started_at, e.ended_at,
+           EXTRACT(EPOCH FROM (COALESCE(e.ended_at, now()) - e.started_at))::int AS duration_seconds,
+           c.title AS card_title, col.board_id
+    FROM e
+    JOIN users u ON u.id = e.user_id
+    JOIN cards c ON c.id = e.card_id
+    JOIN columns col ON col.id = c.column_id`;
+
 // Fails with 23505 if the user already has a running timer
 // (unique index one_running_timer_per_user).
-export async function start(cardId: string, userId: string): Promise<TimeEntry> {
-    const { rows } = await pool.query<TimeEntry>(
-        `INSERT INTO time_entries (card_id, user_id) VALUES ($1, $2) RETURNING ${FIELDS}`,
+export async function start(cardId: string, userId: string): Promise<TimeEntryDetails> {
+    const { rows } = await pool.query<TimeEntryDetails>(
+        `WITH e AS (
+            INSERT INTO time_entries (card_id, user_id) VALUES ($1, $2) RETURNING ${FIELDS}
+         ) ${DETAILS}`,
         [cardId, userId]
     );
     return rows[0];
 }
 
-export async function stopRunning(userId: string): Promise<TimeEntry | null> {
-    const { rows } = await pool.query<TimeEntry>(
-        `UPDATE time_entries SET ended_at = now()
-         WHERE user_id = $1 AND ended_at IS NULL
-         RETURNING ${FIELDS}`,
+export async function stopRunning(userId: string): Promise<TimeEntryDetails | null> {
+    const { rows } = await pool.query<TimeEntryDetails>(
+        `WITH e AS (
+            UPDATE time_entries SET ended_at = now()
+            WHERE user_id = $1 AND ended_at IS NULL
+            RETURNING ${FIELDS}
+         ) ${DETAILS}`,
         [userId]
     );
     return rows[0] ?? null;
 }
 
-export async function getRunning(userId: string): Promise<TimeEntry | null> {
-    const { rows } = await pool.query<TimeEntry>(
-        `SELECT ${FIELDS} FROM time_entries WHERE user_id = $1 AND ended_at IS NULL`,
+export async function getRunning(userId: string): Promise<TimeEntryDetails | null> {
+    const { rows } = await pool.query<TimeEntryDetails>(
+        `WITH e AS (
+            SELECT ${FIELDS} FROM time_entries WHERE user_id = $1 AND ended_at IS NULL
+         ) ${DETAILS}`,
         [userId]
     );
     return rows[0] ?? null;

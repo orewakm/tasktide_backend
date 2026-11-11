@@ -14,6 +14,12 @@ const envSchema = z.object({
     REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
     SESSION_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
 
+    // Frontend origins allowed to call the API and open sockets (comma separated).
+    CORS_ORIGIN: z
+        .string()
+        .default('http://localhost:3000')
+        .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean)),
+
     SUPER_ADMIN_EMAIL: z.email(),
     SUPER_ADMIN_PASSWORD: z.string().min(8),
 });

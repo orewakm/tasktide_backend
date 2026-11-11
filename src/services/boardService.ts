@@ -1,6 +1,7 @@
 import { AppError } from '../errors/AppError';
 import * as boardRepository from '../repositories/boardRepository';
 import type { Role } from '../repositories/userRepository';
+import * as realtime from '../sockets/realtime';
 
 export type Actor = { id: string; role: Role };
 
@@ -46,6 +47,7 @@ export async function renameBoard(boardId: string, name: string, actor: Actor) {
     await getOwnedBoard(boardId, actor);
     const board = await boardRepository.rename(boardId, name);
     if (!board) throw new AppError(404, 'Board not found');
+    realtime.emitToBoard(board.id, 'board:updated', board);
     return board;
 }
 
@@ -53,4 +55,6 @@ export async function deleteBoard(boardId: string, actor: Actor) {
     const board = await getOwnedBoard(boardId, actor);
     const deleted = await boardRepository.softDelete(boardId, board.owner_id);
     if (!deleted) throw new AppError(404, 'Board not found');
+    realtime.emitToBoard(boardId, 'board:deleted', { id: boardId });
+    realtime.closeBoardRoom(boardId);
 }

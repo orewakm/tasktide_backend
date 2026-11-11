@@ -43,19 +43,29 @@ export async function getById(id: string): Promise<NoteWithBoard | null> {
     return rows[0] ?? null;
 }
 
-export async function create(cardId: string, authorId: string, content: string): Promise<Note> {
-    const { rows } = await pool.query<Note>(
-        `INSERT INTO card_notes (card_id, author_id, content)
-         VALUES ($1, $2, $3)
-         RETURNING ${FIELDS}`,
+// INSERT/UPDATE inside a CTE so we can join users and return author_name,
+// the same shape listByCard returns.
+export async function create(cardId: string, authorId: string, content: string): Promise<NoteWithAuthor> {
+    const { rows } = await pool.query<NoteWithAuthor>(
+        `WITH inserted AS (
+            INSERT INTO card_notes (card_id, author_id, content)
+            VALUES ($1, $2, $3)
+            RETURNING ${FIELDS}
+         )
+         SELECT i.id, i.card_id, i.author_id, u.name AS author_name, i.content, i.created_at
+         FROM inserted i JOIN users u ON u.id = i.author_id`,
         [cardId, authorId, content]
     );
     return rows[0];
 }
 
-export async function update(id: string, content: string): Promise<Note | null> {
-    const { rows } = await pool.query<Note>(
-        `UPDATE card_notes SET content = $2 WHERE id = $1 RETURNING ${FIELDS}`,
+export async function update(id: string, content: string): Promise<NoteWithAuthor | null> {
+    const { rows } = await pool.query<NoteWithAuthor>(
+        `WITH updated AS (
+            UPDATE card_notes SET content = $2 WHERE id = $1 RETURNING ${FIELDS}
+         )
+         SELECT n.id, n.card_id, n.author_id, u.name AS author_name, n.content, n.created_at
+         FROM updated n JOIN users u ON u.id = n.author_id`,
         [id, content]
     );
     return rows[0] ?? null;

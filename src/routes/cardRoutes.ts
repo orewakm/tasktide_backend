@@ -16,3 +16,5 @@ cardRoutes.post('/:id/notes', noteController.create);
 
 cardRoutes.get('/:id/time-entries', timeEntryController.listForCard);
 cardRoutes.post('/:id/time-entries', timeEntryController.start);
+
+cardRoutes.patch('/:id/move', cardController.move);

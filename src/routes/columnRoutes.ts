@@ -9,3 +9,4 @@ columnRoutes.use(authenticate);
 columnRoutes.patch('/:id', columnController.rename);
 columnRoutes.delete('/:id', columnController.remove);
 columnRoutes.post('/:id/cards', cardController.create);
+columnRoutes.patch('/:id/move', columnController.move);

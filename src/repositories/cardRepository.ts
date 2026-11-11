@@ -1,4 +1,5 @@
 import { pool } from '../db';
+import type { PoolClient } from 'pg';
 
 export type Priority = 'low' | 'medium' | 'high';
 
@@ -54,7 +55,7 @@ export async function listByBoard(boardId: string): Promise<Card[]> {
          FROM cards c
          JOIN columns col ON col.id = c.column_id
          WHERE col.board_id = $1 AND c.deleted_at IS NULL AND col.deleted_at IS NULL
-         ORDER BY col.position, c.position`,
+         ORDER BY col.position, c.position, c.id`,
         [boardId]
     );
     return rows;
@@ -90,7 +91,11 @@ export interface CardChanges {
 
 // Optimistic locking: only updates if the version still matches what the client saw.
 // Returns null when 0 rows changed (card deleted, or someone else saved first).
-export async function update(id: string, version: number, changes: CardChanges): Promise<Card | null> {
+export async function update(
+    id: string,
+    version: number,
+    changes: CardChanges
+): Promise<Card | null> {
     const { rows } = await pool.query<Card>(
         `UPDATE cards
          SET title = $3, description = $4, priority = $5, assignee_id = $6, completed_at = $7,
@@ -116,4 +121,62 @@ export async function softDelete(id: string): Promise<boolean> {
         [id]
     );
     return (result.rowCount ?? 0) > 0;
+}
+
+export async function lockColumn(client: PoolClient, columnId: string): Promise<boolean> {
+    const { rows } = await client.query(
+        'SELECT id FROM columns WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
+        [columnId]
+    );
+    return rows.length > 0;
+}
+
+export async function listPositions(
+    client: PoolClient,
+    columnId: string,
+    excludeCardId: string
+): Promise<number[]> {
+    const { rows } = await client.query<{ position: number }>(
+        `SELECT position FROM cards
+           WHERE column_id = $1 AND id <> $2 AND deleted_at IS NULL
+           ORDER BY position, id`,
+        [columnId, excludeCardId]
+    );
+    return rows.map((r) => r.position);
+}
+
+// Spreads the column's cards back out to 1000, 2000, 3000... in their current order.
+// Returns every card's new position so it can be sent to the other clients.
+export async function renumber(
+    client: PoolClient,
+    columnId: string
+): Promise<{ id: string; position: number }[]> {
+    const { rows } = await client.query<{ id: string; position: number }>(
+        `UPDATE cards c
+           SET position = ordered.place * 1000
+           FROM (
+              SELECT id, ROW_NUMBER() OVER (ORDER BY position, id) AS place
+              FROM cards
+              WHERE column_id = $1 AND deleted_at IS NULL
+           ) ordered
+           WHERE c.id = ordered.id
+           RETURNING c.id, c.position`,
+        [columnId]
+    );
+    return rows;
+}
+
+export async function moveTo(
+    client: PoolClient,
+    cardId: string,
+    columnId: string,
+    position: number
+): Promise<Card | null> {
+    const { rows } = await client.query<Card>(
+        `UPDATE cards SET column_id = $2, position = $3, updated_at = now()
+           WHERE id = $1 AND deleted_at IS NULL
+           RETURNING ${RETURN_FIELDS}`,
+        [cardId, columnId, position]
+    );
+    return rows[0] ?? null;
 }

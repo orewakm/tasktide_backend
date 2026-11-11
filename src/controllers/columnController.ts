@@ -4,7 +4,7 @@ import * as columnService from '../services/columnService';
 
 const idSchema = z.uuid();
 const columnSchema = z.object({ name: z.string().trim().min(1).max(100) });
-
+const moveColumnSchema = z.object({ index: z.number().int().min(0) });
 // GET /api/boards/:id/columns
 export async function list(req: Request, res: Response) {
     const boardId = idSchema.parse(req.params.id);
@@ -30,4 +30,10 @@ export async function remove(req: Request, res: Response) {
     const columnId = idSchema.parse(req.params.id);
     await columnService.deleteColumn(columnId, req.user!);
     res.status(204).end();
+}
+
+export async function move(req: Request, res: Response) {
+    const columnId = idSchema.parse(req.params.id);
+    const { index } = moveColumnSchema.parse(req.body);
+    res.json(await columnService.moveColumn(columnId, index, req.user!));
 }

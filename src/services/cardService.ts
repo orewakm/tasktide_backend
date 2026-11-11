@@ -1,3 +1,5 @@
+import { withTransaction } from '../db';
+import { positionAt } from '../utils/position';
 import { AppError } from '../errors/AppError';
 import * as cardRepository from '../repositories/cardRepository';
 import type { Card, Priority } from '../repositories/cardRepository';
@@ -23,6 +25,10 @@ export interface CardUpdate {
     completed?: boolean;
 }
 
+export interface CardMove {
+    columnId: string;
+    index: number;
+}
 // Finds the card, then checks the actor can access its board (404 if not).
 export async function getAccessibleCard(cardId: string, actor: Actor) {
     const card = await cardRepository.getById(cardId);
@@ -100,4 +106,30 @@ export async function deleteCard(cardId: string, actor: Actor) {
     await boardService.getOwnedBoard(card.board_id, actor); // 403 for non-owners
     const deleted = await cardRepository.softDelete(cardId);
     if (!deleted) throw new AppError(404, 'Card not found');
+}
+
+export async function moveCard(cardId: string, input: CardMove, actor: Actor) {
+    const card = await getAccessibleCard(cardId, actor); // 404 for non-members
+    const target = await columnService.getAccessibleColumn(input.columnId, actor); // 404 if not visible
+    if (target.board_id !== card.board_id) {
+        throw new AppError(400, 'A card can only be moved to a column on the same board');
+    }
+
+    return withTransaction(async (client) => {
+        const locked = await cardRepository.lockColumn(client, target.id);
+        if (!locked) throw new AppError(404, 'Column not found'); // deleted in the meantime
+
+        let positions = await cardRepository.listPositions(client, target.id, card.id);
+        let position = positionAt(positions, input.index);
+        if (position === null) {
+            // Neighbours too close: spread the column out and calculate again.
+            await cardRepository.renumber(client, target.id);
+            positions = await cardRepository.listPositions(client, target.id, card.id);
+            position = positionAt(positions, input.index)!; // gaps are 1000 now, never null
+        }
+
+        const moved = await cardRepository.moveTo(client, card.id, target.id, position);
+        if (!moved) throw new AppError(404, 'Card not found'); // deleted in the meantime
+        return moved;
+    });
 }

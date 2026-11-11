@@ -12,6 +12,11 @@ const createCardSchema = z.object({
     assigneeId: z.uuid().nullish(),
 });
 
+const moveCardSchema = z.object({
+    columnId: z.uuid(),
+    index: z.number().int().min(0),
+});
+
 // version is required; at least one other field must be sent.
 const updateCardSchema = z
     .object({
@@ -55,4 +60,10 @@ export async function remove(req: Request, res: Response) {
     const cardId = idSchema.parse(req.params.id);
     await cardService.deleteCard(cardId, req.user!);
     res.status(204).end();
+}
+
+export async function move(req: Request, res: Response) {
+    const cardId = idSchema.parse(req.params.id);
+    const input = moveCardSchema.parse(req.body);
+    res.json(await cardService.moveCard(cardId, input, req.user!));
 }

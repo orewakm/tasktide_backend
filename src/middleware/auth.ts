@@ -1,29 +1,33 @@
 import { NextFunction, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
-import { config } from '../config';
 import { AppError } from '../errors/AppError';
 import type { Role } from '../repositories/userRepository';
+import * as authService from '../services/authService';
 
 declare global {
     namespace Express {
         interface Request {
             user?: { id: string; role: Role };
+            sessionToken?: string;
         }
     }
 }
 
-export function authenticate(req: Request, _res: Response, next: NextFunction) {
-    const headers = req.headers.authorization;
-    if (!headers?.startsWith('Bearer ')) throw new AppError(401, 'Missing token');
+// "Bearer abc123" -> "abc123"
+function getBearerToken(header: string | undefined): string | null {
+    if (!header?.startsWith('Bearer ')) return null;
+    const token = header.slice(7).trim();
+    return token || null;
+}
 
-    let payload: jwt.JwtPayload;
-    try {
-        payload = jwt.verify(headers.slice(7), config.JWT_SECRET) as jwt.JwtPayload;
-    } catch {
-        throw new AppError(401, 'Invalid or expired token');
-    }
+export async function authenticate(req: Request, _res: Response, next: NextFunction) {
+    const token = getBearerToken(req.headers.authorization);
+    if (!token) throw new AppError(401, 'Missing token');
 
-    req.user = { id: payload.sub as string, role: payload.role };
+    const user = await authService.resolveSession(token);
+    if (!user) throw new AppError(401, 'Invalid or expired session');
+
+    req.user = { id: user.id, role: user.role };
+    req.sessionToken = token;
     next();
 }
 

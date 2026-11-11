@@ -1,6 +1,7 @@
 import express from 'express';
 import { pool } from './db';
 import { AppError } from './errors/AppError';
+import { redis } from './redis';
 import { logger } from './middleware/logger';
 import { errorHandler } from './middleware/errorHandler';
 import { authRoutes } from './routes/authRoutes';
@@ -15,9 +16,15 @@ export const app = express();
 app.use(logger);
 app.use(express.json());
 
+// Used by Docker's healthcheck: 200 only when both Postgres and Redis answer.
 app.get('/api/health', async (_req, res) => {
-    await pool.query('SELECT 1');
-    res.json({ status: 'ok' });
+    try {
+        await pool.query('SELECT 1');
+        await redis.ping();
+        res.json({ status: 'ok' });
+    } catch {
+        res.status(503).json({ status: 'unavailable' });
+    }
 });
 
 app.use('/api/auth', authRoutes);

@@ -10,8 +10,9 @@ const envSchema = z.object({
     DB_PASSWORD: z.string().min(1),
     DB_NAME: z.string().min(1),
 
-    JWT_SECRET: z.string().min(32),
-    JWT_EXPIRES_IN: z.string().min(1),
+    // Sessions live in Redis. A session expires after this many hours without use.
+    REDIS_URL: z.string().min(1).default('redis://localhost:6379'),
+    SESSION_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
 
     SUPER_ADMIN_EMAIL: z.email(),
     SUPER_ADMIN_PASSWORD: z.string().min(8),

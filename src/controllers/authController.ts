@@ -26,3 +26,9 @@ export async function login(req: Request, res: Response) {
 export async function me(req: Request, res: Response) {
     res.json(await authService.getProfile(req.user!.id));
 }
+
+// POST /api/auth/logout  (deletes this session from Redis)
+export async function logout(req: Request, res: Response) {
+    await authService.logout(req.sessionToken!, req.user!.id);
+    res.status(204).end();
+}

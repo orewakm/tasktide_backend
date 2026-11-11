@@ -1,7 +1,8 @@
 import bcrypt from 'bcryptjs';
-import jwt, { SignOptions } from 'jsonwebtoken';
 import { config } from '../config';
+import * as sessionRepository from '../repositories/sessionRepository';
 import * as userRepository from '../repositories/userRepository';
+import type { PublicUser } from '../repositories/userRepository';
 import { AppError } from '../errors/AppError';
 
 export async function register(name: string, email: string, password: string) {
@@ -16,17 +17,30 @@ export async function register(name: string, email: string, password: string) {
     }
 }
 
+// On success a new session is stored in Redis; the token is its key.
 export async function login(email: string, password: string) {
     const user = await userRepository.getByEmail(email);
     const isValid = user !== null && (await bcrypt.compare(password, user.password_hash));
     if (!user || !isValid) throw new AppError(401, 'Invalid credentials');
 
-    const token = jwt.sign({ role: user.role }, config.JWT_SECRET, {
-        subject: user.id,
-        expiresIn: config.JWT_EXPIRES_IN as SignOptions['expiresIn'],
-    });
+    const token = await sessionRepository.create(user.id);
+    return {
+        token,
+        user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    };
+}
 
-    return { token };
+// Ends this session only (other devices stay logged in).
+export async function logout(token: string, userId: string) {
+    await sessionRepository.remove(token);
+}
+
+// Token -> session in Redis -> user in Postgres.
+// Loading the user every time means a role change or a deleted user takes effect at once.
+export async function resolveSession(token: string): Promise<PublicUser | null> {
+    const userId = await sessionRepository.getUserId(token);
+    if (!userId) return null;
+    return userRepository.getById(userId);
 }
 
 export async function getProfile(id: string) {

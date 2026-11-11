@@ -6,6 +6,7 @@ import { AppError } from './errors/AppError';
 import { redis } from './redis';
 import { logger } from './middleware/logger';
 import { errorHandler } from './middleware/errorHandler';
+import { adminRoutes } from './routes/adminRoutes';
 import { authRoutes } from './routes/authRoutes';
 import { boardRoutes } from './routes/boardRoutes';
 import { invitationRoutes } from './routes/invitationRoutes';
@@ -37,6 +38,7 @@ app.use('/api/columns', columnRoutes);
 app.use('/api/cards', cardRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/time-entries', timeEntryRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use((_req, _res, next) => {
     next(new AppError(404, 'Route not found'));

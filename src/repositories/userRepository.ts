@@ -43,6 +43,29 @@ export async function create(
     return rows[0] ?? null;
 }
 
+export interface UserListItem extends PublicUser {
+    created_at: Date;
+}
+
+export async function listAll(): Promise<UserListItem[]> {
+    const { rows } = await pool.query<UserListItem>(
+        `SELECT id, name, email, role, created_at FROM users
+         WHERE deleted_at IS NULL
+         ORDER BY created_at`
+    );
+    return rows;
+}
+
+export async function updateRole(id: string, role: Role): Promise<PublicUser | null> {
+    const { rows } = await pool.query<PublicUser>(
+        `UPDATE users SET role = $2
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING id, name, email, role`,
+        [id, role]
+    );
+    return rows[0] ?? null;
+}
+
 export async function createSuperAdmin(email: string, passwordHash: string): Promise<boolean> {
     const { rows } = await pool.query(
         `INSERT INTO users (name, email, password_hash, role) 

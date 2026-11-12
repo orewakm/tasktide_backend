@@ -1,13 +1,6 @@
 import type { Server } from 'socket.io';
 import type { Role } from '../repositories/userRepository';
 
-// Services call the functions in this file after a change is saved, to tell
-// everyone who has the board open. The Socket.IO server itself is set up in ./index.ts.
-// TR: Servisler bir değişiklik kaydedildikten sonra, panoyu açık tutan herkese haber vermek için
-// TR: bu dosyadaki fonksiyonları çağırır. Socket.IO sunucusunun kendisi ./index.ts'te kurulur.
-
-// What the handshake's session check (./index.ts) stores on socket.data.
-// TR: Handshake'teki oturum kontrolünün (./index.ts) socket.data'ya kaydettiği bilgiler.
 export interface SocketUser {
     id: string;
     name: string;
@@ -19,15 +12,9 @@ export interface SocketData {
     sessionToken: string;
 }
 
-// Event names and payloads are left loose in Socket.IO's generics; only socket.data is
-// typed strictly. emitToBoard/emitToUser check event names with the unions below instead.
-// TR: Socket.IO generic'lerinde event isimleri ve payload'lar serbest bırakıldı; sadece socket.data
-// TR: sıkı tiplendi. Event isimlerini bunun yerine emitToBoard/emitToUser aşağıdaki union'larla kontrol eder.
 type Events = Record<string, (...args: any[]) => void>;
 export type IoServer = Server<Events, Events, Events, SocketData>;
 
-// Every event the server sends to a board room. A union type catches typos at compile time.
-// TR: Sunucunun bir pano odasına gönderdiği tüm event'ler. Union tip, yazım hatalarını derleme anında yakalar.
 export type BoardEvent =
     | 'board:updated'
     | 'board:deleted'
@@ -51,33 +38,31 @@ export type BoardEvent =
     | 'timer:stopped'
     | 'time-entry:deleted';
 
-// Events sent to one user's own room (all their open tabs).
-// TR: Tek bir kullanıcının kendi odasına (açık olan tüm sekmelerine) gönderilen event'ler.
 export type UserEvent = 'invitation:received' | 'board:added' | 'board:removed';
 
-// Set by initSockets() on startup. Stays null when sockets aren't running.
-// TR: Başlangıçta initSockets() tarafından atanır. Socket'ler çalışmıyorsa null kalır.
 let io: IoServer | null = null;
 
+// Stores the Socket.IO server so services can send events.
 export function setIo(server: IoServer | null) {
     io = server;
 }
 
+// Returns the room name of a board.
 export const boardRoom = (boardId: string) => `board:${boardId}`;
+// Returns the room name of a user.
 export const userRoom = (userId: string) => `user:${userId}`;
 
-// When sockets aren't running (some tests), these do nothing.
-// TR: Socket'ler çalışmıyorsa (bazı testlerde), bunlar hiçbir şey yapmaz.
+// Sends an event to everyone who has the board open.
 export function emitToBoard(boardId: string, event: BoardEvent, payload: unknown) {
     io?.to(boardRoom(boardId)).emit(event, payload);
 }
 
+// Sends an event to all of one user's connections.
 export function emitToUser(userId: string, event: UserEvent, payload: unknown) {
     io?.to(userRoom(userId)).emit(event, payload);
 }
 
-// Who has the board open right now. One entry per user, even with several tabs open.
-// TR: Panoyu şu anda kimler açık tutuyor. Birden fazla sekme açık olsa bile kullanıcı başına tek kayıt.
+// Returns the users who have the board open right now, once each.
 export async function onlineUsers(boardId: string): Promise<{ id: string; name: string }[]> {
     if (!io) return [];
     const sockets = await io.in(boardRoom(boardId)).fetchSockets();
@@ -88,32 +73,26 @@ export async function onlineUsers(boardId: string): Promise<{ id: string; name: 
     return [...users.values()];
 }
 
+// Sends the board's online users to everyone in its room.
 export async function broadcastPresence(boardId: string) {
     if (!io) return;
     const online = await onlineUsers(boardId);
     io.to(boardRoom(boardId)).emit('presence', { board_id: boardId, online });
 }
 
-// A removed member stops receiving the board's events right away.
-// All of the user's tabs sit in their user room, so this pulls every tab out at once.
-// TR: Çıkarılan üye panonun event'lerini hemen almayı bırakır.
-// TR: Kullanıcının tüm sekmeleri kendi kullanıcı odasında, bu yüzden hepsi tek seferde çıkarılır.
+// Takes all of a user's sockets out of a board's room.
 export async function removeUserFromBoard(boardId: string, userId: string) {
     if (!io) return;
     io.in(userRoom(userId)).socketsLeave(boardRoom(boardId));
     await broadcastPresence(boardId);
 }
 
-// After 'board:deleted' is sent, nobody stays in the room.
-// TR: 'board:deleted' gönderildikten sonra odada kimse kalmaz.
+// Removes every socket from a board's room.
 export function closeBoardRoom(boardId: string) {
     io?.in(boardRoom(boardId)).socketsLeave(boardRoom(boardId));
 }
 
-// Logging out also closes the sockets opened with that session.
-// Only that session's sockets: the same user logged in on another device stays connected.
-// TR: Çıkış yapmak, o oturumla açılan socket'leri de kapatır.
-// TR: Sadece o oturumunkiler: aynı kullanıcının başka bir cihazdaki oturumu bağlı kalır.
+// Disconnects the sockets that were opened with the given session.
 export async function disconnectSession(userId: string, token: string) {
     if (!io) return;
     const sockets = await io.in(userRoom(userId)).fetchSockets();

@@ -12,14 +12,13 @@ export interface NoteWithAuthor extends Note {
     author_name: string;
 }
 
-// A note plus the board it belongs to (note -> card -> column -> board).
-// TR: Bir not ve ait olduğu pano (not -> kart -> sütun -> pano).
 export interface NoteWithBoard extends Note {
     board_id: string;
 }
 
 const FIELDS = 'id, card_id, author_id, content, created_at';
 
+// Returns a card's notes with their authors' names.
 export async function listByCard(cardId: string): Promise<NoteWithAuthor[]> {
     const { rows } = await pool.query<NoteWithAuthor>(
         `SELECT n.id, n.card_id, n.author_id, u.name AS author_name, n.content, n.created_at
@@ -32,8 +31,7 @@ export async function listByCard(cardId: string): Promise<NoteWithAuthor[]> {
     return rows;
 }
 
-// Notes on a deleted card or column count as not found.
-// TR: Silinmiş bir kart veya sütundaki notlar bulunamadı sayılır.
+// Returns a note with its board id, or null if its card is deleted.
 export async function getById(id: string): Promise<NoteWithBoard | null> {
     const { rows } = await pool.query<NoteWithBoard>(
         `SELECT n.id, n.card_id, n.author_id, n.content, n.created_at, col.board_id
@@ -46,10 +44,7 @@ export async function getById(id: string): Promise<NoteWithBoard | null> {
     return rows[0] ?? null;
 }
 
-// INSERT/UPDATE inside a CTE so we can join users and return author_name,
-// the same shape listByCard returns.
-// TR: INSERT/UPDATE bir CTE içinde çalışır, böylece users ile join yapıp author_name döndürebiliriz;
-// TR: dönen veri listByCard'ınkiyle aynı yapıda olur.
+// Inserts a note and returns it with the author's name.
 export async function create(cardId: string, authorId: string, content: string): Promise<NoteWithAuthor> {
     const { rows } = await pool.query<NoteWithAuthor>(
         `WITH inserted AS (
@@ -64,6 +59,7 @@ export async function create(cardId: string, authorId: string, content: string):
     return rows[0];
 }
 
+// Updates a note's content and returns it with the author's name.
 export async function update(id: string, content: string): Promise<NoteWithAuthor | null> {
     const { rows } = await pool.query<NoteWithAuthor>(
         `WITH updated AS (
@@ -76,8 +72,7 @@ export async function update(id: string, content: string): Promise<NoteWithAutho
     return rows[0] ?? null;
 }
 
-// card_notes has no deleted_at, so this is a real delete.
-// TR: card_notes tablosunda deleted_at yok, bu yüzden bu gerçek bir silme işlemi.
+// Deletes a note.
 export async function remove(id: string): Promise<boolean> {
     const result = await pool.query('DELETE FROM card_notes WHERE id = $1', [id]);
     return (result.rowCount ?? 0) > 0;

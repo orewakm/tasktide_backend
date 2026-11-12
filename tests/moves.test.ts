@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { pool } from '../src/db';
 import { api, createBoard, createCard, createColumn, createUser, type TestUser } from './helpers';
 
+// Returns the titles of a column's cards in order.
 async function cardTitlesIn(user: TestUser, boardId: string, columnId: string) {
     const res = await api().get(`/api/boards/${boardId}/cards`).set(user.auth);
     return res.body
@@ -9,6 +10,7 @@ async function cardTitlesIn(user: TestUser, boardId: string, columnId: string) {
         .map((card: { title: string }) => card.title);
 }
 
+// Sends a card move request.
 function moveCard(user: TestUser, cardId: string, columnId: string, index: number) {
     return api().patch(`/api/cards/${cardId}/move`).set(user.auth).send({ columnId, index });
 }
@@ -29,11 +31,11 @@ describe('moving cards', () => {
         expect(top.body.position).toBe(0);
         expect(await cardTitlesIn(owner, board.id, todo.id)).toEqual(['C', 'A', 'B']);
 
-        const middle = await moveCard(owner, b.id, todo.id, 1); // between C (0) and A (1000)
+        const middle = await moveCard(owner, b.id, todo.id, 1);
         expect(middle.body.position).toBe(500);
         expect(await cardTitlesIn(owner, board.id, todo.id)).toEqual(['C', 'B', 'A']);
 
-        const other = await moveCard(owner, a.id, done.id, 99); // past the end = bottom
+        const other = await moveCard(owner, a.id, done.id, 99);
         expect(other.body.column_id).toBe(done.id);
         expect(await cardTitlesIn(owner, board.id, done.id)).toEqual(['A']);
         expect(await cardTitlesIn(owner, board.id, todo.id)).toEqual(['C', 'B']);
@@ -60,7 +62,7 @@ describe('moving cards', () => {
         const r = await createCard(owner, column.id, 'R');
         await pool.query('UPDATE cards SET position = $2 WHERE id = $1', [q.id, 1000.0000001]);
 
-        const res = await moveCard(owner, r.id, column.id, 1); // between P and Q: no room left
+        const res = await moveCard(owner, r.id, column.id, 1);
         expect(res.status).toBe(200);
         expect(res.body.position).toBe(1500);
 

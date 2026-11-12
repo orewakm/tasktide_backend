@@ -26,7 +26,7 @@ afterAll(async () => {
     setIo(null);
 });
 
-// Resolves once connected, rejects with the server's error (e.g. "Unauthorized").
+// Connects a socket with the token and resolves once it is connected.
 function connect(token: string): Promise<Socket> {
     return new Promise((resolve, reject) => {
         const socket = connectClient(url, {
@@ -41,13 +41,14 @@ function connect(token: string): Promise<Socket> {
     });
 }
 
-// Waits for the next `event` whose payload passes `match`.
+// Waits for the next event whose payload matches.
 function waitFor<T = any>(socket: Socket, event: string, match: (payload: T) => boolean = () => true): Promise<T> {
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
             socket.off(event, listener);
             reject(new Error(`no matching "${event}" within 3s`));
         }, 3000);
+        // Resolves with the payload once it matches.
         function listener(payload: T) {
             if (!match(payload)) return;
             clearTimeout(timer);
@@ -58,6 +59,7 @@ function waitFor<T = any>(socket: Socket, event: string, match: (payload: T) => 
     });
 }
 
+// Joins a board's room and returns the server's reply.
 function joinBoard(socket: Socket, boardId: string) {
     return socket.emitWithAck('board:join', boardId);
 }
@@ -93,12 +95,10 @@ describe('sockets', () => {
         expect(reply.ok).toBe(true);
         expect((await bothOnline).online.map((u: { name: string }) => u.name).sort()).toEqual(['Member', 'Owner']);
 
-        // A card made over HTTP by one member shows up on the other member's socket.
         const created = waitFor(ownerSocket, 'card:created');
         await createCard(member, column.id, 'Live card');
         expect((await created).title).toBe('Live card');
 
-        // Closing the tab updates the online list.
         const onlyOwner = waitFor(ownerSocket, 'presence', (p: { online: unknown[] }) => p.online.length === 1);
         memberSocket.disconnect();
         expect((await onlyOwner).online[0].name).toBe('Owner');

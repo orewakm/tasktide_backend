@@ -5,12 +5,7 @@ import * as boardService from './boardService';
 import type { Actor } from './boardService';
 import * as cardService from './cardService';
 
-// Any member can track time on a card of their board.
-// The database (one_running_timer_per_user) guarantees one running timer per user.
-// A second start fails with 23505 (unique violation), which we turn into a 409.
-// TR: Herhangi bir üye kendi panosundaki bir kartta zaman tutabilir.
-// TR: Kullanıcı başına tek çalışan zamanlayıcıyı veritabanı (one_running_timer_per_user) garanti eder.
-// TR: İkinci bir başlatma 23505 (unique violation) ile düşer, biz de bunu 409'a çeviririz.
+// Starts a timer on a card, or throws 409 if the user already has one running.
 export async function startTimer(cardId: string, actor: Actor) {
     const card = await cardService.getAccessibleCard(cardId, actor);
     const entry = await timeEntryRepository.start(card.id, actor.id).catch((err) => {
@@ -19,14 +14,11 @@ export async function startTimer(cardId: string, actor: Actor) {
         }
         throw err;
     });
-    // Lets the board show who is working on which card right now.
-    // TR: Panonun, şu anda kimin hangi kart üzerinde çalıştığını göstermesini sağlar.
     realtime.emitToBoard(entry.board_id, 'timer:started', entry);
     return entry;
 }
 
-// Users can only stop their own timer, so no board check is needed.
-// TR: Kullanıcılar sadece kendi zamanlayıcılarını durdurabilir, bu yüzden pano kontrolüne gerek yok.
+// Stops the user's running timer, or throws 404 if none is running.
 export async function stopTimer(actor: Actor) {
     const entry = await timeEntryRepository.stopRunning(actor.id);
     if (!entry) throw new AppError(404, 'No running timer');
@@ -34,19 +26,18 @@ export async function stopTimer(actor: Actor) {
     return entry;
 }
 
-// Returns null when no timer is running.
-// TR: Çalışan bir zamanlayıcı yoksa null döner.
+// Returns the user's running timer, or null.
 export async function getRunningTimer(actor: Actor) {
     return timeEntryRepository.getRunning(actor.id);
 }
 
+// Returns a card's time entries.
 export async function listEntries(cardId: string, actor: Actor) {
     await cardService.getAccessibleCard(cardId, actor);
     return timeEntryRepository.listByCard(cardId);
 }
 
-// The entry's own user or the board owner (or super admin) can delete it.
-// TR: Zaman kaydını, kaydı tutan kullanıcı ya da pano sahibi (veya süper admin) silebilir.
+// Deletes a time entry for its user or the board owner.
 export async function deleteEntry(entryId: string, actor: Actor) {
     const entry = await timeEntryRepository.getById(entryId);
     if (!entry) throw new AppError(404, 'Time entry not found');

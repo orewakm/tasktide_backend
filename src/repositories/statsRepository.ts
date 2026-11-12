@@ -19,40 +19,19 @@ export interface BoardTime {
 }
 
 export interface DayTime {
-    day: string; // YYYY-MM-DD (UTC) (TR: UTC'ye göre YYYY-MM-DD)
+    day: string;
     seconds: number;
 }
 
-// What the stats are about: one board, one card, or one user's time across boards.
-// TR: İstatistiklerin konusu: tek bir pano, tek bir kart ya da bir kullanıcının tüm panolardaki süresi.
 export type Scope = 'board' | 'card' | 'user';
 
-// Picked by scope and pasted into the SQL with ${}. That's safe because the text comes from
-// this fixed map, never from the request; the id itself still goes in as $2.
-// TR: Kapsama göre seçilip ${} ile SQL'e eklenir. Bu güvenli, çünkü metin istekten değil
-// TR: bu sabit eşlemeden gelir; id'nin kendisi yine $2 olarak gönderilir.
 const SCOPE_FILTER: Record<Scope, string> = {
     board: 'col.board_id = $2',
     card: 't.card_id = $2',
     user: 't.user_id = $2',
 };
 
-// Every stats query starts with these two CTEs ($1 = window start, $2 = board/card/user id):
-//   bounds  - the window: from $1 until now
-//   clipped - each time entry cut to the window, as s (start) and e (end).
-//             GREATEST takes the later of the two starts, LEAST the earlier of the two ends.
-//             A running timer counts up to now; an entry that started before
-//             the window only counts the part inside it.
-// The WHERE keeps only entries that overlap the window.
-// Entries on deleted cards, columns or boards are left out.
-// TR: Tüm istatistik sorguları bu iki CTE ile başlar ($1 = aralık başlangıcı, $2 = pano/kart/kullanıcı id'si):
-// TR:   bounds  - zaman aralığı: $1'den şu ana kadar
-// TR:   clipped - her zaman kaydı bu aralığa göre kırpılır, s (başlangıç) ve e (bitiş) olarak.
-// TR:             GREATEST iki başlangıçtan daha geç olanı, LEAST iki bitişten daha erken olanı alır.
-// TR:             Çalışan bir zamanlayıcı şu ana kadar sayılır; aralıktan önce başlamış
-// TR:             bir kaydın yalnızca aralığın içinde kalan kısmı sayılır.
-// TR: WHERE yalnızca aralıkla çakışan kayıtları bırakır.
-// TR: Silinmiş kart, sütun veya panolardaki kayıtlar hesaba katılmaz.
+// Builds the shared CTEs that cut each time entry to the stats window.
 function withClipped(scope: Scope) {
     return `
         WITH bounds AS (
@@ -73,22 +52,14 @@ function withClipped(scope: Scope) {
         )`;
 }
 
-// Total of (end - start) in whole seconds, 0 when there are no rows.
-// EXTRACT returns numeric, which pg would hand us as a string, hence ::int.
-// TR: (bitiş - başlangıç) toplamı, tam saniye olarak; hiç satır yoksa 0.
-// TR: EXTRACT numeric döner, pg bunu bize string olarak verirdi; ::int bu yüzden var.
 const SUM_SECONDS = 'COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM cl.e - cl.s))), 0)::int';
 
-// Same order as in the SQL: $1 = from, $2 = id.
-// null = all time: '-infinity' is a valid timestamp in Postgres, so the window has no start.
-// TR: SQL'deki sırayla aynı: $1 = from, $2 = id.
-// TR: null = tüm zamanlar: '-infinity' Postgres'te geçerli bir timestamp, bu yüzden aralığın başlangıç sınırı olmaz.
+// Builds the query parameters for the window start and the board, card or user id.
 function params(id: string, from: Date | null) {
     return [from ?? '-infinity', id];
 }
 
-// SUM without GROUP BY always gives exactly one row, so rows[0] is always there.
-// TR: GROUP BY olmadan SUM her zaman tam olarak bir satır döner, bu yüzden rows[0] her zaman vardır.
+// Returns the total tracked seconds in the window.
 export async function total(scope: Scope, id: string, from: Date | null): Promise<number> {
     const { rows } = await pool.query<{ seconds: number }>(
         `${withClipped(scope)}
@@ -98,10 +69,7 @@ export async function total(scope: Scope, id: string, from: Date | null): Promis
     return rows[0].seconds;
 }
 
-// byUser, byCard and byBoard split the same sum per user, per card and per board.
-// Biggest first, then by name, so equal totals keep a stable order.
-// TR: byUser, byCard ve byBoard aynı toplamı kullanıcıya, karta ve panoya göre böler.
-// TR: En büyüğü önce gelir, sonra isme göre sıralanır; böylece eşit toplamların sırası değişmez.
+// Returns tracked seconds per user, highest first.
 export async function byUser(scope: Scope, id: string, from: Date | null): Promise<UserTime[]> {
     const { rows } = await pool.query<UserTime>(
         `${withClipped(scope)}
@@ -115,6 +83,7 @@ export async function byUser(scope: Scope, id: string, from: Date | null): Promi
     return rows;
 }
 
+// Returns tracked seconds per card, highest first.
 export async function byCard(scope: Scope, id: string, from: Date | null): Promise<CardTime[]> {
     const { rows } = await pool.query<CardTime>(
         `${withClipped(scope)}
@@ -128,6 +97,7 @@ export async function byCard(scope: Scope, id: string, from: Date | null): Promi
     return rows;
 }
 
+// Returns tracked seconds per board, highest first.
 export async function byBoard(scope: Scope, id: string, from: Date | null): Promise<BoardTime[]> {
     const { rows } = await pool.query<BoardTime>(
         `${withClipped(scope)}
@@ -141,18 +111,7 @@ export async function byBoard(scope: Scope, id: string, from: Date | null): Prom
     return rows;
 }
 
-// One row per UTC day in the window, including days with 0 seconds
-// (LEFT JOIN keeps the empty days, COALESCE turns their null sum into 0).
-// generate_series makes the list of days; each entry is cut again to each day it overlaps,
-// so a timer running across midnight is split between the two days.
-// AT TIME ZONE 'UTC' keeps the day label in UTC whatever time zone the DB session uses.
-// `from` must be a UTC midnight (not all time).
-// TR: Aralıktaki her UTC günü için bir satır döner, 0 saniyelik günler de dahil
-// TR: (LEFT JOIN boş günleri korur, COALESCE onların null toplamını 0 yapar).
-// TR: generate_series gün listesini üretir; her kayıt çakıştığı her güne göre tekrar kırpılır,
-// TR: böylece gece yarısını geçen bir zamanlayıcı iki gün arasında bölünür.
-// TR: AT TIME ZONE 'UTC', veritabanı oturumunun saat dilimi ne olursa olsun gün etiketini UTC'de tutar.
-// TR: `from` bir UTC gece yarısı olmalı (tüm zamanlar seçilemez).
+// Returns tracked seconds for every day in the window, including empty days.
 export async function byDay(scope: Scope, id: string, from: Date): Promise<DayTime[]> {
     const { rows } = await pool.query<DayTime>(
         `${withClipped(scope)}

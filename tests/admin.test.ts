@@ -31,7 +31,6 @@ describe('admin', () => {
         expect(promoted.status).toBe(200);
         expect(promoted.body.role).toBe('admin');
 
-        // Same token, no re-login: the role is read from the database on every request.
         expect((await api().get('/api/admin/users').set(user.auth)).status).toBe(200);
     });
 

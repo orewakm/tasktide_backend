@@ -16,8 +16,6 @@ export interface CardInput {
     assigneeId?: string | null;
 }
 
-// Every field is optional except version (the version the client last saw).
-// TR: version dışındaki tüm alanlar isteğe bağlıdır (version, client'ın en son gördüğü sürümdür).
 export interface CardUpdate {
     version: number;
     title?: string;
@@ -31,8 +29,7 @@ export interface CardMove {
     columnId: string;
     index: number;
 }
-// Finds the card, then checks the actor can access its board (404 if not).
-// TR: Kartı bulur, sonra kullanıcının kartın panosuna erişimi olup olmadığına bakar (yoksa 404).
+// Returns the card if the user can access its board, otherwise throws 404.
 export async function getAccessibleCard(cardId: string, actor: Actor) {
     const card = await cardRepository.getById(cardId);
     if (!card) throw new AppError(404, 'Card not found');
@@ -40,18 +37,19 @@ export async function getAccessibleCard(cardId: string, actor: Actor) {
     return card;
 }
 
-// A card can only be assigned to someone who is an active member of its board.
-// TR: Kart sadece panonun aktif üyesi olan birine atanabilir.
+// Throws 400 if the assignee isn't an active member of the board.
 export async function assertAssigneeIsMember(boardId: string, userId: string) {
     const isMember = await memberRepository.isActiveMember(boardId, userId);
     if (!isMember) throw new AppError(400, 'Assignee must be an active member of the board');
 }
 
+// Returns every card on a board the user can access.
 export async function listCards(boardId: string, actor: Actor) {
     await boardService.getAccessibleBoard(boardId, actor);
     return cardRepository.listByBoard(boardId);
 }
 
+// Creates a card in a column.
 export async function createCard(columnId: string, input: CardInput, actor: Actor) {
     const column = await columnService.getAccessibleColumn(columnId, actor);
     if (input.assigneeId) await assertAssigneeIsMember(column.board_id, input.assigneeId);
@@ -63,18 +61,16 @@ export async function createCard(columnId: string, input: CardInput, actor: Acto
         input.priority,
         input.assigneeId ?? null
     );
-    // Events go out only after the row is saved, here and in every other service.
-    // TR: Event'ler sadece satır kaydedildikten sonra gönderilir, burada da diğer servislerde de.
     realtime.emitToBoard(column.board_id, 'card:created', card);
     return card;
 }
 
+// Returns one card the user can access.
 export async function getCard(cardId: string, actor: Actor) {
     return getAccessibleCard(cardId, actor);
 }
 
-// completed: true keeps the original completion time if it was already completed.
-// TR: completed: true gelirse, kart zaten tamamlanmışsa ilk tamamlanma zamanı korunur.
+// Works out the new completed_at value from the completed flag.
 function resolveCompletedAt(card: Card, completed: boolean | undefined) {
     if (completed === undefined) return card.completed_at;
     if (!completed) return null;
@@ -83,26 +79,13 @@ function resolveCompletedAt(card: Card, completed: boolean | undefined) {
 
 const CONFLICT_MESSAGE = 'Card was changed by someone else. Reload it and try again.';
 
-// Any active member can edit a card.
-// Optimistic locking: the client sends the version it loaded. If it's out of date,
-// someone saved in between, so we answer 409 instead of quietly overwriting their change.
-// TR: Kartı herhangi bir aktif üye düzenleyebilir.
-// TR: Optimistic locking: client yüklediği version'ı gönderir. Bu eskiyse arada başka biri
-// TR: kaydetmiş demektir, onun değişikliğinin üzerine sessizce yazmak yerine 409 döneriz.
+// Edits a card, or throws 409 if someone else saved it first.
 export async function updateCard(cardId: string, input: CardUpdate, actor: Actor) {
     const card = await getAccessibleCard(cardId, actor);
-    // Early check only. The real guard is "WHERE version = $2" in the repository's UPDATE,
-    // which also catches a save that lands between our read and our write.
-    // TR: Bu sadece erken bir kontrol. Asıl koruma repository'deki UPDATE'in "WHERE version = $2"
-    // TR: kısmıdır; okuma ile yazmamız arasına giren bir kaydı da o yakalar.
     if (input.version !== card.version) throw new AppError(409, CONFLICT_MESSAGE);
 
     if (input.assigneeId) await assertAssigneeIsMember(card.board_id, input.assigneeId);
 
-    // Fields the client didn't send keep their current value.
-    // (undefined = "not sent", null = "clear it")
-    // TR: Client'ın göndermediği alanlar mevcut değerlerini korur.
-    // TR: (undefined = "gönderilmedi", null = "temizle")
     const updated = await cardRepository.update(cardId, input.version, {
         title: input.title ?? card.title,
         description: input.description !== undefined ? input.description : card.description,
@@ -112,8 +95,6 @@ export async function updateCard(cardId: string, input: CardUpdate, actor: Actor
     });
 
     if (!updated) {
-        // 0 rows: either deleted in the meantime, or someone saved between our read and write.
-        // TR: 0 satır: ya kart bu arada silindi ya da okuma ile yazma arasında başka biri kaydetti.
         const stillExists = await cardRepository.getById(cardId);
         if (!stillExists) throw new AppError(404, 'Card not found');
         throw new AppError(409, CONFLICT_MESSAGE);
@@ -122,63 +103,41 @@ export async function updateCard(cardId: string, input: CardUpdate, actor: Actor
     return updated;
 }
 
-// Deleting is destructive, so only the board owner can do it.
-// TR: Silme ciddi bir işlem olduğu için sadece pano sahibi yapabilir.
+// Deletes a card for the board owner.
 export async function deleteCard(cardId: string, actor: Actor) {
-    const card = await getAccessibleCard(cardId, actor); // 404 for non-members (TR: üye değilse 404)
-    await boardService.getOwnedBoard(card.board_id, actor); // 403 for non-owners (TR: pano sahibi değilse 403)
+    const card = await getAccessibleCard(cardId, actor);
+    await boardService.getOwnedBoard(card.board_id, actor);
     const deleted = await cardRepository.softDelete(cardId);
     if (!deleted) throw new AppError(404, 'Card not found');
     realtime.emitToBoard(card.board_id, 'card:deleted', { id: card.id, column_id: card.column_id });
 }
 
-// Any member can move a card to another spot on the same board.
-// A move doesn't bump the card's version (only column and position change), so someone
-// editing the card's text at the same time won't get a 409 because it was dragged.
-// TR: Herhangi bir üye kartı aynı pano içinde başka bir yere taşıyabilir.
-// TR: Taşımak kartın version'ını artırmaz (sadece sütun ve pozisyon değişir), böylece aynı
-// TR: anda kartın metnini düzenleyen biri, kart sürüklendi diye 409 almaz.
+// Moves a card to a new spot in a column on the same board.
 export async function moveCard(cardId: string, input: CardMove, actor: Actor) {
-    const card = await getAccessibleCard(cardId, actor); // 404 for non-members (TR: üye değilse 404)
-    const target = await columnService.getAccessibleColumn(input.columnId, actor); // 404 if not visible (TR: görünmüyorsa 404)
+    const card = await getAccessibleCard(cardId, actor);
+    const target = await columnService.getAccessibleColumn(input.columnId, actor);
     if (target.board_id !== card.board_id) {
         throw new AppError(400, 'A card can only be moved to a column on the same board');
     }
 
-    // Throwing inside the transaction rolls everything back, renumbering included.
-    // TR: Transaction içinde hata fırlatılırsa her şey rollback olur, yeniden numaralandırma da dahil.
     const { moved, renumbered } = await withTransaction(async (client) => {
-        // Locking the target column makes two moves into it wait for each other,
-        // so they can't both pick the same position.
-        // TR: Hedef sütunu kilitlemek, bu sütuna yapılan iki taşımanın birbirini beklemesini
-        // TR: sağlar; böylece ikisi aynı pozisyonu seçemez.
         const locked = await cardRepository.lockColumn(client, target.id);
-        if (!locked) throw new AppError(404, 'Column not found'); // deleted in the meantime (TR: bu arada silinmiş)
+        if (!locked) throw new AppError(404, 'Column not found');
 
         let renumbered: { id: string; position: number }[] | null = null;
-        // The card itself is left out of the list, so index is where it ends up.
-        // TR: Kartın kendisi listeye alınmaz, böylece index kartın varacağı yeri gösterir.
         let positions = await cardRepository.listPositions(client, target.id, card.id);
         let position = positionAt(positions, input.index);
         if (position === null) {
-            // Neighbours too close: spread the column out and calculate again.
-            // TR: Komşu pozisyonlar çok yakın: sütunu yeniden aralıklandır ve tekrar hesapla.
             renumbered = await cardRepository.renumber(client, target.id);
             positions = await cardRepository.listPositions(client, target.id, card.id);
-            position = positionAt(positions, input.index)!; // gaps are 1000 now, never null (TR: aralıklar artık 1000, asla null olmaz)
+            position = positionAt(positions, input.index)!;
         }
 
         const moved = await cardRepository.moveTo(client, card.id, target.id, position);
-        if (!moved) throw new AppError(404, 'Card not found'); // deleted in the meantime (TR: bu arada silinmiş)
+        if (!moved) throw new AppError(404, 'Card not found');
         return { moved, renumbered };
     });
 
-    // Sent only after COMMIT, so clients never hear about a change that got rolled back.
-    // Renumbered positions go first; the moved card's new position then overrides its own.
-    // TR: Sadece COMMIT'ten sonra gönderilir, böylece client'lar rollback olmuş
-    // TR: bir değişikliği hiç duymaz.
-    // TR: Önce yeniden numaralanan pozisyonlar gider; ardından taşınan kartın yeni pozisyonu
-    // TR: o listedeki kendi değerinin üzerine yazar.
     if (renumbered) {
         realtime.emitToBoard(card.board_id, 'cards:renumbered', {
             column_id: target.id,

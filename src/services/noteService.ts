@@ -5,10 +5,7 @@ import * as boardService from './boardService';
 import type { Actor } from './boardService';
 import * as cardService from './cardService';
 
-// Finds the note and its board; non-members get 404.
-// The board comes back too because deleteNote needs it for the owner check.
-// TR: Notu ve panosunu bulur; üye olmayanlar 404 alır.
-// TR: Pano da döndürülür, çünkü deleteNote pano sahibi kontrolü için ona ihtiyaç duyar.
+// Returns the note and its board if the user can access them, otherwise throws 404.
 async function getAccessibleNote(noteId: string, actor: Actor) {
     const note = await noteRepository.getById(noteId);
     if (!note) throw new AppError(404, 'Note not found');
@@ -16,17 +13,13 @@ async function getAccessibleNote(noteId: string, actor: Actor) {
     return { note, board };
 }
 
-// Any member can read the notes of a card.
-// TR: Bir kartın notlarını herhangi bir üye okuyabilir.
+// Returns a card's notes.
 export async function listNotes(cardId: string, actor: Actor) {
     await cardService.getAccessibleCard(cardId, actor);
     return noteRepository.listByCard(cardId);
 }
 
-// Only the card's assignee (or super admin) can add notes.
-// Non-members already got a 404 from getAccessibleCard; other members get 403 here.
-// TR: Karta not ekleyebilen sadece kartın atandığı kişidir (veya süper admin).
-// TR: Üye olmayanlar getAccessibleCard'dan zaten 404 aldı; diğer üyeler burada 403 alır.
+// Adds a note to a card for the card's assignee.
 export async function addNote(cardId: string, content: string, actor: Actor) {
     const card = await cardService.getAccessibleCard(cardId, actor);
     if (card.assignee_id !== actor.id && actor.role !== 'super_admin') {
@@ -37,8 +30,7 @@ export async function addNote(cardId: string, content: string, actor: Actor) {
     return note;
 }
 
-// Only the author (or super admin) can edit a note.
-// TR: Bir notu sadece yazan kişi (veya süper admin) düzenleyebilir.
+// Edits a note for its author.
 export async function editNote(noteId: string, content: string, actor: Actor) {
     const { note } = await getAccessibleNote(noteId, actor);
     if (note.author_id !== actor.id && actor.role !== 'super_admin') {
@@ -50,8 +42,7 @@ export async function editNote(noteId: string, content: string, actor: Actor) {
     return updated;
 }
 
-// The author or the board owner (or super admin) can delete a note.
-// TR: Bir notu yazan kişi ya da pano sahibi (veya süper admin) silebilir.
+// Deletes a note for its author or the board owner.
 export async function deleteNote(noteId: string, actor: Actor) {
     const { note, board } = await getAccessibleNote(noteId, actor);
     if (note.author_id !== actor.id && !boardService.canManageBoard(board, actor)) {

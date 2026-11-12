@@ -1,17 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { Client } from 'pg';
 
-// Runs once before all test files: a fresh test database with the real schema.
-
+// Returns the test database name, refusing any name that doesn't end with _test.
 function databaseName() {
     const name = process.env.DB_NAME ?? '';
-    // Safety net: never drop a database that isn't clearly a test database.
     if (!name.endsWith('_test')) {
         throw new Error(`Refusing to use "${name}" for tests: the name must end with _test`);
     }
     return name;
 }
 
+// Creates a Postgres client for the given database.
 function connect(database: string) {
     return new Client({
         host: process.env.DB_HOST,
@@ -22,6 +21,7 @@ function connect(database: string) {
     });
 }
 
+// Drops the database if it exists.
 async function dropDatabase(name: string) {
     const admin = connect('postgres');
     await admin.connect();
@@ -29,6 +29,7 @@ async function dropDatabase(name: string) {
     await admin.end();
 }
 
+// Creates a fresh test database with the schema before the tests run.
 export async function setup() {
     const name = databaseName();
     await dropDatabase(name);
@@ -44,6 +45,7 @@ export async function setup() {
     await db.end();
 }
 
+// Drops the test database after the tests.
 export async function teardown() {
     await dropDatabase(databaseName());
 }

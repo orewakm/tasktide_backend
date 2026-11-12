@@ -5,14 +5,17 @@ import { addMember, api, createBoard, createCard, createColumn, createUser } fro
 const HOUR = 60 * 60 * 1000;
 const DAY = 24 * HOUR;
 
+// Returns UTC midnight the given number of days ago.
 function utcMidnight(daysAgo: number) {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     return new Date(today.getTime() - daysAgo * DAY);
 }
 
+// Formats a date as YYYY-MM-DD.
 const isoDay = (date: Date) => date.toISOString().slice(0, 10);
 
+// Inserts a finished time entry directly into the database.
 async function insertEntry(cardId: string, userId: string, start: Date, end: Date) {
     await pool.query(
         'INSERT INTO time_entries (card_id, user_id, started_at, ended_at) VALUES ($1, $2, $3, $4)',
@@ -74,11 +77,8 @@ describe('time stats', () => {
         const card1 = await createCard(alice, column.id, 'Design');
         const card2 = await createCard(alice, column.id, 'Build');
 
-        // Alice: 23:00 -> 01:00 across midnight (1h on each day)
         await insertEntry(card1.id, alice.id, new Date(utcMidnight(2).getTime() - HOUR), new Date(utcMidnight(2).getTime() + HOUR));
-        // Bob: 30 minutes, two days ago
         await insertEntry(card2.id, bob.id, new Date(utcMidnight(2).getTime() + 10 * HOUR), new Date(utcMidnight(2).getTime() + 10.5 * HOUR));
-        // Alice: 1h, 40 days ago (outside a 30 day window)
         await insertEntry(card1.id, alice.id, new Date(utcMidnight(40).getTime() + 9 * HOUR), new Date(utcMidnight(40).getTime() + 10 * HOUR));
 
         const res = await api().get(`/api/boards/${board.id}/stats?days=30`).set(bob.auth);
@@ -99,14 +99,12 @@ describe('time stats', () => {
         expect(byDay.find((d) => d.day === isoDay(utcMidnight(3)))!.seconds).toBe(3600);
         expect(byDay.find((d) => d.day === isoDay(utcMidnight(2)))!.seconds).toBe(5400);
 
-        // Card stats are all time, so the old entry counts too.
         const card = await api().get(`/api/cards/${card1.id}/stats`).set(alice.auth);
         expect(card.body).toEqual({
             total_seconds: 10800,
             by_user: [{ user_id: alice.id, name: 'Alice', seconds: 10800 }],
         });
 
-        // Alice's own week.
         const mine = await api().get('/api/time-entries/stats?days=7').set(alice.auth);
         expect(mine.body.total_seconds).toBe(7200);
         expect(mine.body.by_board).toEqual([{ board_id: board.id, name: 'Stats', seconds: 7200 }]);

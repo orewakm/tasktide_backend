@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '../src/app';
 import { pool } from '../src/db';
 
+// Returns a Supertest client for the app.
 export const api = () => request(app);
 
 export interface TestUser {
@@ -14,7 +15,7 @@ export interface TestUser {
 
 let counter = 0;
 
-// Registers a new user with a unique email and logs them in.
+// Registers a user with a unique email and logs them in.
 export async function createUser(name = 'User'): Promise<TestUser> {
     counter += 1;
     const email = `${name.toLowerCase().replace(/\W+/g, '')}-${Date.now()}-${counter}@test.dev`;
@@ -29,17 +30,19 @@ export async function createUser(name = 'User'): Promise<TestUser> {
     return { id: registered.body.id, name, email, token, auth: { Authorization: `Bearer ${token}` } };
 }
 
+// Sets a user's role directly in the database.
 export async function setRole(user: TestUser, role: 'user' | 'admin' | 'super_admin') {
     await pool.query('UPDATE users SET role = $2 WHERE id = $1', [user.id, role]);
 }
 
+// Creates a board and returns it.
 export async function createBoard(owner: TestUser, name = 'Board') {
     const res = await api().post('/api/boards').set(owner.auth).send({ name });
     if (res.status !== 201) throw new Error(`create board failed: ${res.status}`);
     return res.body as { id: string; name: string; owner_id: string };
 }
 
-// Adds the user straight in as an active member (no invitation step).
+// Adds a user to a board as an active member.
 export async function addMember(owner: TestUser, boardId: string, user: TestUser) {
     const res = await api()
         .post(`/api/boards/${boardId}/members`)
@@ -48,12 +51,14 @@ export async function addMember(owner: TestUser, boardId: string, user: TestUser
     if (res.status !== 201) throw new Error(`add member failed: ${res.status}`);
 }
 
+// Creates a column and returns it.
 export async function createColumn(user: TestUser, boardId: string, name = 'Column') {
     const res = await api().post(`/api/boards/${boardId}/columns`).set(user.auth).send({ name });
     if (res.status !== 201) throw new Error(`create column failed: ${res.status}`);
     return res.body as { id: string; board_id: string; name: string; position: number };
 }
 
+// Creates a card and returns it.
 export async function createCard(user: TestUser, columnId: string, title = 'Card') {
     const res = await api().post(`/api/columns/${columnId}/cards`).set(user.auth).send({ title });
     if (res.status !== 201) throw new Error(`create card failed: ${res.status}`);

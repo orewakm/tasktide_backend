@@ -10,6 +10,7 @@ export interface Column {
 
 const FIELDS = 'id, board_id, name, position';
 
+// Returns a board's columns ordered by position.
 export async function listByBoard(boardId: string): Promise<Column[]> {
     const { rows } = await pool.query<Column>(
         `SELECT ${FIELDS} FROM columns
@@ -20,6 +21,7 @@ export async function listByBoard(boardId: string): Promise<Column[]> {
     return rows;
 }
 
+// Returns a column, or null if it is deleted.
 export async function getById(id: string): Promise<Column | null> {
     const { rows } = await pool.query<Column>(
         `SELECT ${FIELDS} FROM columns WHERE id = $1 AND deleted_at IS NULL`,
@@ -28,10 +30,7 @@ export async function getById(id: string): Promise<Column | null> {
     return rows[0] ?? null;
 }
 
-// New columns go to the end of the board (last position + 1000).
-// COALESCE(..., 0) covers a board that has no columns yet.
-// TR: Yeni sütunlar panonun sonuna eklenir (son pozisyon + 1000).
-// TR: COALESCE(..., 0), henüz hiç sütunu olmayan bir pano içindir.
+// Inserts a column at the end of the board.
 export async function create(boardId: string, name: string): Promise<Column> {
     const { rows } = await pool.query<Column>(
         `INSERT INTO columns (board_id, name, position)
@@ -45,6 +44,7 @@ export async function create(boardId: string, name: string): Promise<Column> {
     return rows[0];
 }
 
+// Renames a column and returns it, or null if it doesn't exist.
 export async function rename(id: string, name: string): Promise<Column | null> {
     const { rows } = await pool.query<Column>(
         `UPDATE columns SET name = $2
@@ -55,10 +55,7 @@ export async function rename(id: string, name: string): Promise<Column | null> {
     return rows[0] ?? null;
 }
 
-// Soft delete. The cards inside are left as they are, but card lookups join columns and
-// check col.deleted_at, so they disappear along with the column.
-// TR: Soft delete. İçindeki kartlara dokunulmaz, ama kart sorguları columns ile join yapıp
-// TR: col.deleted_at'i kontrol ettiği için kartlar da sütunla birlikte görünmez olur.
+// Marks a column as deleted.
 export async function softDelete(id: string): Promise<boolean> {
     const result = await pool.query(
         'UPDATE columns SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL',
@@ -67,10 +64,7 @@ export async function softDelete(id: string): Promise<boolean> {
     return (result.rowCount ?? 0) > 0;
 }
 
-// Locks the board row (FOR UPDATE) until the transaction ends, so two column moves on the
-// same board run one after the other. false = the board is deleted.
-// TR: Pano satırını transaction bitene kadar kilitler (FOR UPDATE), böylece aynı panodaki
-// TR: iki sütun taşıma işlemi sırayla çalışır. false = pano silinmiş.
+// Locks a board row until the transaction ends, so column moves run one at a time.
 export async function lockBoard(client: PoolClient, boardId: string): Promise<boolean> {
     const { rows } = await client.query(
         'SELECT id FROM boards WHERE id = $1 AND deleted_at IS NULL FOR UPDATE',
@@ -79,8 +73,7 @@ export async function lockBoard(client: PoolClient, boardId: string): Promise<bo
     return rows.length > 0;
 }
 
-// Positions of the board's columns, left to right, without the column being moved.
-// TR: Panodaki sütunların soldan sağa pozisyonları, taşınan sütun hariç.
+// Returns the positions of a board's columns, leaving out the column being moved.
 export async function listPositions(
     client: PoolClient,
     boardId: string,
@@ -95,10 +88,7 @@ export async function listPositions(
     return rows.map((r) => r.position);
 }
 
-// Spreads the board's columns back out to 1000, 2000, 3000... in their current order.
-// Returns every column's new position so it can be sent to the other clients.
-// TR: Panodaki sütunları mevcut sıralarını koruyarak tekrar 1000, 2000, 3000... olarak dağıtır.
-// TR: Her sütunun yeni pozisyonunu döner, böylece diğer istemcilere gönderilebilir.
+// Resets a board's column positions to 1000, 2000, 3000... and returns them.
 export async function renumber(
     client: PoolClient,
     boardId: string
@@ -118,6 +108,7 @@ export async function renumber(
     return rows;
 }
 
+// Sets a column's position.
 export async function moveTo(
     client: PoolClient,
     id: string,

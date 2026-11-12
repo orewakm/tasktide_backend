@@ -118,7 +118,7 @@ export async function byDay(scope: Scope, id: string, from: Date): Promise<DayTi
          SELECT to_char(d.day AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
                 COALESCE(ROUND(SUM(EXTRACT(EPOCH FROM
                     LEAST(cl.e, d.day + interval '24 hours') - GREATEST(cl.s, d.day)
-                ))), 0)::int AS seconds
+                )) FILTER (WHERE cl.s IS NOT NULL)), 0)::int AS seconds
          FROM bounds b
          CROSS JOIN generate_series(b.from_ts, b.to_ts, interval '24 hours') AS d(day)
          LEFT JOIN clipped cl ON cl.s < d.day + interval '24 hours' AND cl.e > d.day

@@ -98,6 +98,8 @@ describe('time stats', () => {
         expect(byDay.at(-1)!.day).toBe(isoDay(utcMidnight(0)));
         expect(byDay.find((d) => d.day === isoDay(utcMidnight(3)))!.seconds).toBe(3600);
         expect(byDay.find((d) => d.day === isoDay(utcMidnight(2)))!.seconds).toBe(5400);
+        expect(byDay.find((d) => d.day === isoDay(utcMidnight(10)))!.seconds).toBe(0);
+        expect(byDay.reduce((sum, d) => sum + d.seconds, 0)).toBe(9000);
 
         const card = await api().get(`/api/cards/${card1.id}/stats`).set(alice.auth);
         expect(card.body).toEqual({

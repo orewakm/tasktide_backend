@@ -2,7 +2,7 @@ import { withTransaction } from '../db';
 import { positionAt } from '../utils/position';
 import { AppError } from '../errors/AppError';
 import * as cardRepository from '../repositories/cardRepository';
-import type { Card, Priority } from '../repositories/cardRepository';
+import type { Card, CardSort, Priority } from '../repositories/cardRepository';
 import * as memberRepository from '../repositories/boardMemberRepository';
 import * as boardService from './boardService';
 import type { Actor } from './boardService';
@@ -47,6 +47,45 @@ export async function assertAssigneeIsMember(boardId: string, userId: string) {
 export async function listCards(boardId: string, actor: Actor) {
     await boardService.getAccessibleBoard(boardId, actor);
     return cardRepository.listByBoard(boardId);
+}
+
+export interface CardQuery {
+    boardId?: string;
+    columnId?: string;
+    status?: 'completed' | 'pending';
+    priority?: Priority;
+    assigneeId?: string;
+    search?: string;
+    sort: CardSort;
+    order: 'asc' | 'desc';
+    page: number;
+    limit: number;
+}
+
+// Returns one page of the user's task list with filters, search and sorting.
+export async function findCards(query: CardQuery, actor: Actor) {
+    if (query.boardId) await boardService.getAccessibleBoard(query.boardId, actor);
+
+    const { rows, total } = await cardRepository.find({
+        memberId: actor.role === 'super_admin' ? null : actor.id,
+        boardId: query.boardId,
+        columnId: query.columnId,
+        completed: query.status === undefined ? undefined : query.status === 'completed',
+        priority: query.priority,
+        assigneeId: query.assigneeId === 'me' ? actor.id : query.assigneeId,
+        search: query.search,
+        sort: query.sort,
+        order: query.order,
+        limit: query.limit,
+        offset: (query.page - 1) * query.limit,
+    });
+    return {
+        data: rows,
+        page: query.page,
+        limit: query.limit,
+        total,
+        total_pages: Math.ceil(total / query.limit),
+    };
 }
 
 // Creates a card in a column.

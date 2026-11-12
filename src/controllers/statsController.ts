@@ -27,3 +27,9 @@ export async function mine(req: Request, res: Response) {
     const { days } = daysQuery(7).parse(req.query);
     res.json(await statsService.myStats(days, req.user!));
 }
+
+// Returns a board's completed and pending card counts (GET /api/boards/:id/summary).
+export async function summary(req: Request, res: Response) {
+    const boardId = idSchema.parse(req.params.id);
+    res.json(await statsService.boardSummary(boardId, req.user!));
+}

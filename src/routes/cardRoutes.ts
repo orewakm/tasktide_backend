@@ -8,6 +8,7 @@ import { authenticate } from '../middleware/auth';
 export const cardRoutes = Router();
 cardRoutes.use(authenticate);
 
+cardRoutes.get('/', cardController.find);
 cardRoutes.get('/:id', cardController.getOne);
 cardRoutes.patch('/:id', cardController.update);
 cardRoutes.delete('/:id', cardController.remove);

@@ -62,6 +62,93 @@ export async function listByBoard(boardId: string): Promise<Card[]> {
     return rows;
 }
 
+export interface CardListItem extends Card {
+    board_id: string;
+    board_name: string;
+    column_name: string;
+    assignee_name: string | null;
+}
+
+export type CardSort = 'created_at' | 'updated_at' | 'priority' | 'title';
+
+export interface CardFilters {
+    memberId: string | null;
+    boardId?: string;
+    columnId?: string;
+    completed?: boolean;
+    priority?: Priority;
+    assigneeId?: string;
+    search?: string;
+    sort: CardSort;
+    order: 'asc' | 'desc';
+    limit: number;
+    offset: number;
+}
+
+const SORT_COLUMNS: Record<CardSort, string> = {
+    created_at: 'c.created_at',
+    updated_at: 'c.updated_at',
+    priority: 'c.priority',
+    title: 'c.title',
+};
+
+// Escapes the ILIKE wildcards so the search text is matched literally.
+function likePattern(text: string) {
+    return `%${text.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
+// Returns one page of cards that match the filters, plus the total count.
+export async function find(filters: CardFilters): Promise<{ rows: CardListItem[]; total: number }> {
+    const where = ['c.deleted_at IS NULL', 'col.deleted_at IS NULL', 'b.deleted_at IS NULL'];
+    const params: unknown[] = [];
+    const param = (value: unknown) => {
+        params.push(value);
+        return `$${params.length}`;
+    };
+
+    if (filters.memberId) {
+        where.push(
+            `EXISTS (SELECT 1 FROM board_members m
+                     WHERE m.board_id = b.id AND m.user_id = ${param(filters.memberId)} AND m.status = 'active')`
+        );
+    }
+    if (filters.boardId) where.push(`b.id = ${param(filters.boardId)}`);
+    if (filters.columnId) where.push(`c.column_id = ${param(filters.columnId)}`);
+    if (filters.completed !== undefined) {
+        where.push(filters.completed ? 'c.completed_at IS NOT NULL' : 'c.completed_at IS NULL');
+    }
+    if (filters.priority) where.push(`c.priority = ${param(filters.priority)}`);
+    if (filters.assigneeId) where.push(`c.assignee_id = ${param(filters.assigneeId)}`);
+    if (filters.search) {
+        const pattern = param(likePattern(filters.search));
+        where.push(`(c.title ILIKE ${pattern} OR c.description ILIKE ${pattern})`);
+    }
+
+    const from = `FROM cards c
+         JOIN columns col ON col.id = c.column_id
+         JOIN boards b ON b.id = col.board_id
+         LEFT JOIN users u ON u.id = c.assignee_id
+         WHERE ${where.join(' AND ')}`;
+    const order = filters.order === 'asc' ? 'ASC' : 'DESC';
+
+    const countParams = [...params];
+    const limit = param(filters.limit);
+    const offset = param(filters.offset);
+
+    const [count, page] = await Promise.all([
+        pool.query<{ total: number }>(`SELECT COUNT(*)::int AS total ${from}`, countParams),
+        pool.query<CardListItem>(
+            `SELECT ${SELECT_FIELDS}, b.id AS board_id, b.name AS board_name,
+                    col.name AS column_name, u.name AS assignee_name
+             ${from}
+             ORDER BY ${SORT_COLUMNS[filters.sort]} ${order}, c.id ${order}
+             LIMIT ${limit} OFFSET ${offset}`,
+            params
+        ),
+    ]);
+    return { rows: page.rows, total: count.rows[0].total };
+}
+
 // Inserts a card at the bottom of its column.
 export async function create(
     columnId: string,

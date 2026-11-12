@@ -128,3 +128,85 @@ export async function byDay(scope: Scope, id: string, from: Date): Promise<DayTi
     );
     return rows;
 }
+
+export interface CardCounts {
+    total: number;
+    completed: number;
+    pending: number;
+}
+
+export interface ColumnCounts extends CardCounts {
+    column_id: string;
+    name: string;
+}
+
+export interface PriorityCounts extends CardCounts {
+    priority: 'low' | 'medium' | 'high';
+}
+
+export interface AssigneeCounts extends CardCounts {
+    user_id: string | null;
+    name: string | null;
+}
+
+const BOARD_CARDS = `
+    WITH bc AS (
+        SELECT c.id, c.column_id, c.assignee_id, c.priority, c.completed_at
+        FROM cards c
+        JOIN columns col ON col.id = c.column_id
+        WHERE col.board_id = $1 AND c.deleted_at IS NULL AND col.deleted_at IS NULL
+    )`;
+
+const COUNTS = `
+    COUNT(bc.id)::int AS total,
+    COUNT(bc.id) FILTER (WHERE bc.completed_at IS NOT NULL)::int AS completed,
+    COUNT(bc.id) FILTER (WHERE bc.completed_at IS NULL)::int AS pending`;
+
+// Counts a board's cards in total, completed and pending.
+export async function cardTotals(boardId: string): Promise<CardCounts> {
+    const { rows } = await pool.query<CardCounts>(`${BOARD_CARDS} SELECT ${COUNTS} FROM bc`, [boardId]);
+    return rows[0];
+}
+
+// Counts a board's cards per column, including empty columns.
+export async function cardsByColumn(boardId: string): Promise<ColumnCounts[]> {
+    const { rows } = await pool.query<ColumnCounts>(
+        `${BOARD_CARDS}
+         SELECT col.id AS column_id, col.name, ${COUNTS}
+         FROM columns col
+         LEFT JOIN bc ON bc.column_id = col.id
+         WHERE col.board_id = $1 AND col.deleted_at IS NULL
+         GROUP BY col.id
+         ORDER BY col.position, col.id`,
+        [boardId]
+    );
+    return rows;
+}
+
+// Counts a board's cards per priority, including priorities with no cards.
+export async function cardsByPriority(boardId: string): Promise<PriorityCounts[]> {
+    const { rows } = await pool.query<PriorityCounts>(
+        `${BOARD_CARDS}
+         SELECT p.priority, ${COUNTS}
+         FROM unnest(enum_range(NULL::card_priority)) AS p(priority)
+         LEFT JOIN bc ON bc.priority = p.priority
+         GROUP BY p.priority
+         ORDER BY p.priority DESC`,
+        [boardId]
+    );
+    return rows;
+}
+
+// Counts a board's cards per assignee, with unassigned cards in their own row.
+export async function cardsByAssignee(boardId: string): Promise<AssigneeCounts[]> {
+    const { rows } = await pool.query<AssigneeCounts>(
+        `${BOARD_CARDS}
+         SELECT bc.assignee_id AS user_id, u.name, ${COUNTS}
+         FROM bc
+         LEFT JOIN users u ON u.id = bc.assignee_id
+         GROUP BY bc.assignee_id, u.name
+         ORDER BY total DESC, u.name NULLS LAST`,
+        [boardId]
+    );
+    return rows;
+}

@@ -21,3 +21,4 @@ boardRoutes.get('/:id/columns', columnController.list);
 boardRoutes.post('/:id/columns', columnController.create);
 boardRoutes.get('/:id/cards', cardController.list);
 boardRoutes.get('/:id/stats', statsController.board);
+boardRoutes.get('/:id/summary', statsController.summary);

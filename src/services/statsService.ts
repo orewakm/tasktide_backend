@@ -52,3 +52,15 @@ export async function myStats(days: number, actor: Actor) {
     ]);
     return { from, to: new Date(), total_seconds: total, by_board: byBoard, by_day: byDay };
 }
+
+// Returns a board's completed and pending card counts in total and per column, priority and assignee.
+export async function boardSummary(boardId: string, actor: Actor) {
+    await boardService.getAccessibleBoard(boardId, actor);
+    const [totals, byColumn, byPriority, byAssignee] = await Promise.all([
+        statsRepository.cardTotals(boardId),
+        statsRepository.cardsByColumn(boardId),
+        statsRepository.cardsByPriority(boardId),
+        statsRepository.cardsByAssignee(boardId),
+    ]);
+    return { ...totals, by_column: byColumn, by_priority: byPriority, by_assignee: byAssignee };
+}

@@ -28,6 +28,25 @@ const updateCardSchema = z
     })
     .refine((body) => Object.keys(body).length > 1, { message: 'Nothing to update' });
 
+const findCardsSchema = z.object({
+    boardId: z.uuid().optional(),
+    columnId: z.uuid().optional(),
+    status: z.enum(['completed', 'pending']).optional(),
+    priority: z.enum(priorities).optional(),
+    assigneeId: z.union([z.uuid(), z.literal('me')]).optional(),
+    search: z.string().trim().min(1).max(100).optional(),
+    sort: z.enum(['created_at', 'updated_at', 'priority', 'title']).default('created_at'),
+    order: z.enum(['asc', 'desc']).default('desc'),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+// Returns the task list with filters, search, sorting and pagination (GET /api/cards).
+export async function find(req: Request, res: Response) {
+    const query = findCardsSchema.parse(req.query);
+    res.json(await cardService.findCards(query, req.user!));
+}
+
 // Returns every card on a board in order (GET /api/boards/:id/cards).
 export async function list(req: Request, res: Response) {
     const boardId = idSchema.parse(req.params.id);

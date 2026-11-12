@@ -10,6 +10,49 @@ services:
         volumes:
             - tasktide_db_data:/var/lib/postgresql/data
             - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    redis:
+        image: redis:8-alpine
+        volumes:
+            - tasktide_redis_data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+    api:
+        build: .
+        environment:
+            PORT: 8000
+            DB_HOST: db
+            DB_PORT: 5432
+            DB_USER: ${DB_USER:-tasktide}
+            DB_PASSWORD: ${DB_PASSWORD:-tasktide}
+            DB_NAME: ${DB_NAME:-tasktide}
+            REDIS_URL: redis://redis:6379
+            CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+            SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-admin@example.dev}
+            SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-change-this-password}
+        ports:
+            - '8000:8000'
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'wget', '-qO-', 'http://localhost:8000/api/health']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+        restart: unless-stopped
 
 volumes:
     tasktide_db_data:
+    tasktide_redis_data:

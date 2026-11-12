@@ -1,0 +1,76 @@
+name: tasktide
+
+services:
+    caddy:
+        image: caddy:2-alpine
+        environment:
+            DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env}
+        ports:
+            - '80:80'
+            - '443:443'
+            - '443:443/udp'
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        depends_on:
+            - api
+        restart: unless-stopped
+
+    api:
+        build: ..
+        environment:
+            PORT: 8000
+            DB_HOST: db
+            DB_PORT: 5432
+            DB_USER: ${DB_USER:-tasktide}
+            DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+            DB_NAME: ${DB_NAME:-tasktide}
+            REDIS_URL: redis://redis:6379
+            CORS_ORIGIN: https://${DOMAIN}
+            SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:?set SUPER_ADMIN_EMAIL in deploy/.env}
+            SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:?set SUPER_ADMIN_PASSWORD in deploy/.env}
+        depends_on:
+            db:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+        healthcheck:
+            test: ['CMD', 'wget', '-qO-', 'http://localhost:8000/api/health']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        restart: unless-stopped
+
+    db:
+        image: postgres:17-alpine
+        environment:
+            POSTGRES_USER: ${DB_USER:-tasktide}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in deploy/.env}
+            POSTGRES_DB: ${DB_NAME:-tasktide}
+        volumes:
+            - db_data:/var/lib/postgresql/data
+            - ../db/schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+        restart: unless-stopped
+
+    redis:
+        image: redis:8-alpine
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+        restart: unless-stopped
+
+volumes:
+    caddy_data:
+    caddy_config:
+    db_data:
+    redis_data:
